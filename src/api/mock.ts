@@ -14,13 +14,15 @@ import {
   type MockCommit, type MockRepo, type MockStash, type Scenario,
 } from "./mockData";
 import { buildFileDiff, fileText, toFileChange } from "./mockDiff";
+import { isImagePath } from "./imageFiles";
+import { mockFileImages } from "./mockImages";
 import { CHANGED_ON_DISK, appendIgnoreLines, fileKey, filePathError, ignorePatternError, isFolder, listFiles, readText, searchFiles, versionOf } from "./mockFiles";
 import { uniqueProjectName, validateProjectName } from "./projectName";
 import { validateRefName } from "../features/dialogs/refname";
 import { entryOf, genericConflicts, currentOids, hasStage, isTextConflict, sideStages, versionsOf, type MockConflict } from "./mockConflicts";
 import type {
   CloneOpts, CloneProgress, CloneResult, CloneTarget, CommitDetails, CommitRow, ConflictEntry, ConflictLabels, ConflictVersions, ConsoleEntry, DiffSpec,
-  FileChange, FileDiff, GraphRow, IgnoreFile, IgnoreTarget, LocalBranch, LogQuery, LogSessionInfo, MergeMode, MergeOpts, OpResult, Project, RefLabel, Refs, RepoChanged, RepoInfo,
+  FileChange, FileDiff, FileImages, GraphRow, IgnoreFile, IgnoreTarget, LocalBranch, LogQuery, LogSessionInfo, MergeMode, MergeOpts, OpResult, Project, RefLabel, Refs, RepoChanged, RepoInfo,
   RepoSummary, ResetMode, Workspace, WorkingTree,
 } from "./types";
 import { ERR_BARE_REPOSITORY, ERR_DEEP_REPOSITORY, ERR_INSIDE_GIT_DIR, ERR_NO_REPOSITORY, type InitInfo } from "./types";
@@ -528,7 +530,8 @@ function commitDetails(repo: MockRepo, oid: string): CommitDetails {
   };
 }
 
-function fileDiff(repo: MockRepo, spec: DiffSpec, path: string, oldPath: string | null, context: number): FileDiff {
+/** How the mock sees a file of a diff: added, modified or deleted, and the seed its fake contents come from. */
+function diffSide(repo: MockRepo, spec: DiffSpec, path: string): { status: "added" | "modified" | "deleted"; seed: string } {
   let status: "added" | "modified" | "deleted" = "modified";
   let seed = path;
   if (spec.kind === "commit") {
@@ -542,8 +545,19 @@ function fileDiff(repo: MockRepo, spec: DiffSpec, path: string, oldPath: string 
     if (f) status = f.status === "added" || f.status === "untracked" ? "added" : f.status === "deleted" ? "deleted" : "modified";
     seed = (spec.kind === "staged" ? "wt-staged-" : f?.status === "untracked" ? "wt-untracked-" : "wt-unstaged-") + path;
   }
-  if (path.endsWith(".png")) return { path, oldPath, binary: true, hunks: [], tooLarge: false };
+  return { status, seed };
+}
+
+function fileDiff(repo: MockRepo, spec: DiffSpec, path: string, oldPath: string | null, context: number): FileDiff {
+  const { status, seed } = diffSide(repo, spec, path);
+  // git calls every image but SVG binary
+  if (isImagePath(path) && !path.toLowerCase().endsWith(".svg")) return { path, oldPath, binary: true, hunks: [], tooLarge: false };
   return buildFileDiff(path, oldPath, seed, status, context);
+}
+
+function fileImages(repo: MockRepo, spec: DiffSpec, path: string, oldPath: string | null): FileImages {
+  const { status, seed } = diffSide(repo, spec, path);
+  return mockFileImages(path, oldPath, seed, status);
 }
 
 // ---------------------------------------------------------------- write helpers
@@ -838,6 +852,14 @@ const handlers: Record<string, Handler> = {
     if (spec.kind === "commit") args.push(`${spec.parent ?? spec.oid + "^"}`, spec.oid);
     c.git(repo, [...args, "--", path]);
     return fileDiff(repo, spec, path, optStr(a.oldPath), context);
+  },
+  file_images: (a, c) => {
+    const repo = repoOf(a.repoId);
+    const spec = a.spec as DiffSpec;
+    const path = str(a.path);
+    if (!isImagePath(path)) fail(`Not an image file: ${path}`);
+    c.git(repo, spec.kind === "commit" ? ["cat-file", "blob", `${spec.oid}:${path}`] : ["cat-file", "blob", `:0:${path}`]);
+    return fileImages(repo, spec, path, optStr(a.oldPath));
   },
   file_content: (a, c) => {
     const repo = repoOf(a.repoId);

@@ -108,6 +108,7 @@ pub fn run() {
             commands::working_tree,
             commands::file_diff,
             commands::file_content,
+            commands::file_images,
             commands::list_files,
             commands::read_text_file,
             commands::read_ignore_file,

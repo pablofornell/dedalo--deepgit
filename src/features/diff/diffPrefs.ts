@@ -3,6 +3,7 @@ import { createSignal, type Accessor } from "solid-js";
 import { loadPersisted, savePersisted } from "../../state/persist";
 import { setSetting, type DiffMode } from "../../state/settings";
 import type { IgnoreWs } from "./diffModel";
+import { sanitizeImageMode, type ImageMode } from "./imageModel";
 
 function persisted<T>(key: string, fallback: T): [Accessor<T>, (v: T) => void] {
   const [get, set] = createSignal<T>(loadPersisted(key, fallback));
@@ -20,6 +21,11 @@ export const [syntaxOn, setSyntaxOn] = persisted("diff.syntax", true);
 export const [collapseOn, setCollapseOn] = persisted("diff.collapse", true);
 export const [lineNumbersOn, setLineNumbersOn] = persisted("diff.lineNumbers", true);
 export const [ignoreWs, setIgnoreWs] = persisted<IgnoreWs>("diff.ignoreWhitespace", "off");
+
+/** How the image diff compares the two pictures (the saved value is checked on read). */
+const [storedImageMode, setStoredImageMode] = persisted<ImageMode>("diff.imageMode", "sideBySide");
+export const imageMode = (): ImageMode => sanitizeImageMode(storedImageMode());
+export const setImageMode = setStoredImageMode;
 
 /** The layout the user picked in this session (not saved across sessions): it beats the narrow-pane fallback. */
 export const [explicitDiffMode, setExplicitDiffMode] = createSignal<DiffMode | null>(null);

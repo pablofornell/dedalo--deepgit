@@ -156,7 +156,11 @@ pub fn parse_name_status(text: &str) -> Result<Vec<FileChange>, GitError> {
 }
 
 /// First parent of `oid`, or the empty tree for a root commit.
-fn first_parent_or_empty(git: &Git, repo: &RepoInfo, oid: &str) -> Result<String, GitError> {
+pub(crate) fn first_parent_or_empty(
+    git: &Git,
+    repo: &RepoInfo,
+    oid: &str,
+) -> Result<String, GitError> {
     check_name("commit", oid)?;
     let rev = format!("{oid}^");
     let mut args = vec!["rev-parse", "-q", "--verify"];

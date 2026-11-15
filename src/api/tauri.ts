@@ -14,7 +14,7 @@
  */
 import type {
   ApiErrorShape, AuthNotice, AuthPrompt, CloneOpts, CloneProgress, CloneResult, CloneTarget, CommitDetails, ConflictEntry, ConflictSide, ConflictVersions,
-  ConsoleEntry, DiffSpec, ExpectedOids, FileDiff, FileList, IgnoreFile, IgnoreTarget, InitInfo, LogQuery, LogSessionInfo, MergeOpts, OpResult, Project, CommitRow, HunkOpts, RepoChanged, RepoSummary, Refs,
+  ConsoleEntry, DiffSpec, ExpectedOids, FileDiff, FileImages, FileList, IgnoreFile, IgnoreTarget, InitInfo, LogQuery, LogSessionInfo, MergeOpts, OpResult, Project, CommitRow, HunkOpts, RepoChanged, RepoSummary, Refs,
   ResetMode, SearchResult, StashUntracked, TextFile, Workspace, WorkingTree,
 } from "./types";
 
@@ -104,6 +104,12 @@ export const unpushedCount = (repoId: string, branch: string) => invoke<number>(
 export const workingTree =(repoId: string) => invoke<WorkingTree>("working_tree", { repoId });
 export const fileDiff = (repoId: string, spec: DiffSpec, path: string, oldPath: string | null = null, context = 3) =>
   invoke<FileDiff>("file_diff", { repoId, spec, path, oldPath, context });
+/**
+ * The two sides of an image file for the image diff: commit = parent (or `spec.parent`) and commit, staged = HEAD and index, unstaged = index and worktree.
+ * `oldPath` is where the old side is read after a rename. A side that does not exist is `null`; one over 20 MiB has `tooLarge` and no data.
+ */
+export const fileImages = (repoId: string, spec: DiffSpec, path: string, oldPath: string | null = null) =>
+  invoke<FileImages>("file_images", { repoId, spec, path, oldPath });
 /** File content at `rev`, or the worktree file when `rev` is null (max 2 MiB). */
 export const fileContent = (repoId: string, rev: string | null, path: string) => invoke<string>("file_content", { repoId, rev, path });
 export const lastCommitMessage = (repoId: string) => invoke<string>("last_commit_message", { repoId });

@@ -294,6 +294,24 @@ export interface FileDiff {
   tooLarge: boolean;
 }
 
+/** One side of an image diff (`fileImages`). */
+export interface ImageSide {
+  /** Size of the file in bytes. */
+  size: number;
+  /** `image/png`, `image/svg+xml`...; from the file extension. */
+  mime: string;
+  /** The file as standard base64. `null` when `tooLarge`. */
+  data: string | null;
+  /** More than 20 MiB: the bytes are not sent. */
+  tooLarge: boolean;
+}
+
+/** The two sides of an image diff. A side is `null` when the file is not there (added, deleted, root commit, untracked). */
+export interface FileImages {
+  old: ImageSide | null;
+  new: ImageSide | null;
+}
+
 // ---------------------------------------------------------------- project files
 
 /** Tracked and untracked files of the worktree, without the ignored ones. The ignored entries come apart in `ignored`. */
