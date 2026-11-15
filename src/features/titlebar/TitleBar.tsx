@@ -10,6 +10,7 @@ import { autoFetchLine } from "../../state/autoFetch";
 import { formatDate } from "../../state/dates";
 import { fetchAge } from "../../state/fetchAge";
 import { bottomTool, toggleBottomTool } from "../../state/layout";
+import { showDialog } from "../../state/dialogs";
 import { runBinding, shortcutLabel } from "../../state/keymap";
 import { settings, setSetting, type ThemePref } from "../../state/settings";
 import { focusedRepo, projectRepos, projectTotals, summary } from "../../state/workspace";
@@ -84,6 +85,8 @@ export function TitleBar(): JSX.Element {
       { label: "Comfortable rows", checked: settings.comfortableRows, onSelect: () => setSetting("comfortableRows", !settings.comfortableRows) },
       { separator: true },
       { label: "Show background commands in the console", checked: settings.showBackgroundCommands, onSelect: () => setSetting("showBackgroundCommands", !settings.showBackgroundCommands) },
+      { separator: true },
+      { label: "About DeepGit", icon: "info", onSelect: () => void showDialog("about", {}) },
     ]);
   };
 

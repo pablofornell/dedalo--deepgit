@@ -7,6 +7,7 @@ import * as api from "../../api/tauri";
 import type { DiffSpec, FileStatus } from "../../api/types";
 import { type IconName, THEME_ICONS, toast } from "../../components/ui";
 import * as actions from "../../state/actions";
+import { showDialog } from "../../state/dialogs";
 import { bindings, runBinding } from "../../state/keymap";
 import { cachedRefs, repoRefs } from "../../state/refs";
 import { jumpToCommit, selectFile, selectedCommit, setChangesRepoId, setMainTab, setSelectedCommit } from "../../state/selection";
@@ -35,6 +36,7 @@ const EXTRAS: ExtraAction[] = [
   { key: "x.clone", title: "Clone repository…", icon: "repo", group: "Project", run: () => void actions.cloneRepository() },
   { key: "x.renameProject", title: "Rename project…", icon: "rename", group: "Project", run: () => void actions.renameProject() },
   { key: "x.rescan", title: "Rescan project for repositories", icon: "refresh", group: "Project", run: () => { const p = activeProject(); if (p) void rescanProject(p.id); } },
+  { key: "x.about", title: "About DeepGit", icon: "info", group: "App", run: () => void showDialog("about", {}) },
   { key: "x.showLog", title: "Show log", icon: "log", group: "View", run: () => setMainTab("log") },
   { key: "x.allRepos", title: "Show all repositories in the log", icon: "repo", group: "View", run: selectAllRepos },
   { key: "x.toggleGraph", title: "Toggle commit graph", icon: "log", group: "View", run: () => setSetting("showGraph", !settings.showGraph) },
