@@ -150,6 +150,13 @@ export const discardHunk = (repoId: string, path: string, hunkIndex: number, opt
 export const writeTextFile = (repoId: string, path: string, content: string, expectedVersion: string | null) =>
   invoke<string>("write_text_file", { repoId, path, content, expectedVersion });
 /**
+ * Creates an empty file at `path` (relative to the repo) and the folders above it. Rejects when the name exists,
+ * when the path leaves the repo or goes into `.git`, or when it ends with "/" or holds a backslash.
+ */
+export const createFile = (repoId: string, path: string) => invoke<void>("create_file", { repoId, path });
+/** Creates an empty folder at `path` and the folders above it. The same rejections as `createFile`. Git does not list an empty folder. */
+export const createDir = (repoId: string, path: string) => invoke<void>("create_dir", { repoId, path });
+/**
  * Adds pattern lines at the end of `.gitignore` or `.git/info/exclude` (creates the file). A line that the file holds
  * already is skipped. Returns the lines that were added. Does not stage and does not commit.
  */

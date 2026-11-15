@@ -41,8 +41,22 @@ export interface RepoNode {
   children: FileTreeNode[];
 }
 
+/**
+ * The row where the user types the name of a new file or folder. It is not part of the project: `withDraft` puts it in
+ * the tree. `dir` is the folder that will hold the entry: "" for the repo root, otherwise a path that ends with "/".
+ */
+export interface DraftNode {
+  kind: "draft";
+  id: string;
+  repoId: string;
+  dir: string;
+  /** True for a new folder, false for a new file. */
+  isDir: boolean;
+  name: "";
+}
+
 export type FileTreeNode = DirNode | FileNode;
-export type TreeNode = FileTreeNode | RepoNode;
+export type TreeNode = FileTreeNode | RepoNode | DraftNode;
 
 /** Returns the id of a node or tab. Without a repo id, it returns the path. With one, it returns the repo id, `SEP`, and the path. */
 export function scopeId(repoId: string, path: string): string {
@@ -97,6 +111,117 @@ export function buildTree(paths: readonly string[], repoId = ""): FileTreeNode[]
 /** Returns the root node of one repo. Its children are the tree of `paths`. */
 export function repoNode(repoId: string, name: string, paths: readonly string[]): RepoNode {
   return { kind: "repo", id: repoId + SEP, repoId, name, children: buildTree(paths, repoId) };
+}
+
+// ---------------------------------------------------------------- new file or folder
+
+/** Returns a draft row for a new file (`isDir` false) or folder in `dir` of the repo. */
+export function draftNode(repoId: string, dir: string, isDir: boolean): DraftNode {
+  return { kind: "draft", id: scopeId(repoId, dir) + SEP + "draft", repoId, dir, isDir, name: "" };
+}
+
+/**
+ * Returns the folder that holds a new entry created from `node`: the folder itself, the folder of a file, or the repo root.
+ * The result is "" or a path that ends with "/".
+ */
+export function newEntryDir(node: TreeNode): string {
+  if (node.kind === "dir") return node.path;
+  if (node.kind === "file") return node.path.slice(0, node.path.lastIndexOf("/") + 1);
+  if (node.kind === "draft") return node.dir;
+  return "";
+}
+
+/**
+ * Returns `roots` with the draft row in it: first among the folders for a new folder, first among the files for a new
+ * file. The nodes above the draft are copies; the others are shared. When the folder of the draft is not in the tree,
+ * the result has no draft row.
+ */
+export function withDraft(roots: readonly TreeNode[], draft: DraftNode): TreeNode[] {
+  const place = (list: readonly TreeNode[]): TreeNode[] => {
+    const firstFile = list.findIndex((n) => n.kind !== "dir" && n.kind !== "repo");
+    const at = draft.isDir ? 0 : firstFile < 0 ? list.length : firstFile;
+    return [...list.slice(0, at), draft, ...list.slice(at)];
+  };
+  // Replaces the folder that holds the draft, below `list`. `list` is the level of the repo root or of a folder.
+  const descend = (list: readonly TreeNode[], from: string): TreeNode[] | null => {
+    if (draft.dir === from) return place(list);
+    for (let i = 0; i < list.length; i++) {
+      const n = list[i];
+      if (n.kind !== "dir" || !draft.dir.startsWith(n.path)) continue;
+      const kids = descend(n.children, n.path);
+      if (!kids) return null;
+      // The draft is not a file or a folder of the project, so the children list holds it as a cast.
+      return [...list.slice(0, i), { ...n, children: kids as FileTreeNode[] }, ...list.slice(i + 1)];
+    }
+    return null;
+  };
+  const repos = roots.filter((n): n is RepoNode => n.kind === "repo");
+  if (repos.length === 0) return descend(roots, "") ?? [...roots];
+  return roots.map((n) => {
+    if (n.kind !== "repo" || n.repoId !== draft.repoId) return n;
+    return { ...n, children: (descend(n.children, "") ?? n.children) as FileTreeNode[] };
+  });
+}
+
+/** The files and folders that exist, as the tree knows them. A folder path has no trailing slash. */
+export interface KnownEntries {
+  files: ReadonlySet<string>;
+  dirs: ReadonlySet<string>;
+}
+
+/** Returns the entries that `paths` names. A path that ends with "/" is a folder. Every folder above an entry is a folder. */
+export function knownEntries(paths: readonly string[]): KnownEntries {
+  const files = new Set<string>();
+  const dirs = new Set<string>();
+  for (const path of paths) {
+    if (path === "") continue;
+    if (path.endsWith("/")) dirs.add(path.slice(0, -1));
+    else files.add(path);
+    for (let i = path.indexOf("/"); i > 0; i = path.indexOf("/", i + 1)) dirs.add(path.slice(0, i));
+  }
+  return { files, dirs };
+}
+
+/** Returns the folders of `dirs` (paths that end with "/") that hold no file of `paths`. Once a folder has content, git lists it. */
+export function emptyFolders(dirs: ReadonlySet<string>, paths: readonly string[]): Set<string> {
+  const out = new Set<string>();
+  for (const dir of dirs) if (!paths.some((p) => p.length > dir.length && p.startsWith(dir))) out.add(dir);
+  return out;
+}
+
+/** Returns the folder paths (each ends with "/") that a new entry at `path` creates or uses: `a/b/c.txt` gives `a/` and `a/b/`. */
+export function folderChain(path: string): string[] {
+  const out: string[] = [];
+  for (let i = path.indexOf("/"); i >= 0; i = path.indexOf("/", i + 1)) out.push(path.slice(0, i + 1));
+  return out;
+}
+
+const NEW_NAME_CONTROL = /[\u0000-\u001f\u007f]/;
+
+/**
+ * Checks the name that the user typed for a new file or folder in `dir` (see `DraftNode.dir`). The name can hold "/"
+ * to make folders on the way (`a/b/c.txt`). It trims spaces, and a new folder may end with "/". The result is the
+ * repo-relative path, or the message to show next to the input. The message says what is wrong in a few words.
+ * `known` is what exists now. The backend checks the same rules again, and the disk has the last word.
+ */
+export function checkNewName(raw: string, dir: string, isDir: boolean, known: KnownEntries): { path: string } | { error: string } {
+  let name = raw.trim();
+  if (isDir) name = name.replace(/\/+$/, "");
+  if (name === "") return { error: "Enter a name." };
+  if (name.includes("\\")) return { error: "A name cannot contain a backslash. Use / to make folders." };
+  if (NEW_NAME_CONTROL.test(name)) return { error: "A name cannot contain control characters." };
+  const parts = name.split("/");
+  if (parts.some((p) => p.trim() === "")) return { error: "A name cannot start or end with / or have an empty part." };
+  const dots = parts.find((p) => p === "." || p === "..");
+  if (dots !== undefined) return { error: `"${dots}" is not allowed in a name.` };
+  if (`${dir}${name}`.split("/").some((p) => p.toLowerCase() === ".git")) return { error: "A new entry cannot go inside .git." };
+  const path = dir + name;
+  for (let i = 1; i < parts.length; i++) {
+    const above = dir + parts.slice(0, i).join("/");
+    if (known.files.has(above)) return { error: `"${above}" is a file, so nothing can go inside it.` };
+  }
+  if (known.files.has(path) || known.dirs.has(path)) return { error: `"${name}" already exists here.` };
+  return { path };
 }
 
 // ---------------------------------------------------------------- git status

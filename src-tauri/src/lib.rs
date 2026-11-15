@@ -120,6 +120,8 @@ pub fn run() {
             commands::stage_hunk,
             commands::discard_hunk,
             commands::write_text_file,
+            commands::create_file,
+            commands::create_dir,
             commands::append_ignore_rules,
             commands::commit,
             commands::checkout,

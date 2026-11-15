@@ -157,6 +157,83 @@ describe("mock files: write", () => {
   });
 });
 
+const createFile = (repoId: string, path: string) => call<void>("create_file", { repoId, path });
+const createDir = (repoId: string, path: string) => call<void>("create_dir", { repoId, path });
+const listed = async (repoId: string) => (await call<FileList>("list_files", { repoId })).files;
+const untracked = async (repoId: string) => (await call<WorkingTree>("working_tree", { repoId })).unstaged.filter((f) => f.status === "untracked").map((f) => f.path);
+
+describe("mock files: create", () => {
+  it("makes an empty file with its parent folders, listed and untracked", async () => {
+    const refunds = await repoNamed("refunds-worker");
+    await createFile(refunds, "fresh/deep/new.txt");
+    expect(await read(refunds, "fresh/deep/new.txt")).toMatchObject({ content: "", binary: false });
+    expect(await listed(refunds)).toContain("fresh/deep/new.txt");
+    expect(await untracked(refunds)).toContain("fresh/deep/new.txt");
+  });
+
+  it("hides a new file that an ignore rule matches, like git does", async () => {
+    const api = await repoNamed("api-gateway");
+    await createFile(api, "debug-created.log");
+    expect(await listed(api)).not.toContain("debug-created.log");
+    expect(await untracked(api)).not.toContain("debug-created.log");
+    expect((await call<FileList>("list_files", { repoId: api })).ignored).toContain("debug-created.log");
+  });
+
+  it("makes an empty folder that git does not list, and refuses to make it twice", async () => {
+    const refunds = await repoNamed("refunds-worker");
+    await createDir(refunds, "empty/inner");
+    expect((await listed(refunds)).some((p) => p.startsWith("empty/"))).toBe(false);
+    expect(await rejected(createDir(refunds, "empty/inner"))).toEqual({ message: "empty/inner already exists." });
+    expect(await rejected(createDir(refunds, "empty"))).toEqual({ message: "empty already exists." });
+    expect(await rejected(createFile(refunds, "empty"))).toEqual({ message: "empty already exists." });
+    // A file can go in the empty folder.
+    await createFile(refunds, "empty/inner/x.txt");
+    expect(await listed(refunds)).toContain("empty/inner/x.txt");
+  });
+
+  it("refuses a name that exists and keeps the content", async () => {
+    const refunds = await repoNamed("refunds-worker");
+    await write(refunds, "keep.txt", "keep me");
+    expect(await rejected(createFile(refunds, "keep.txt"))).toEqual({ message: "keep.txt already exists." });
+    expect(await rejected(createDir(refunds, "keep.txt"))).toEqual({ message: "keep.txt already exists." });
+    expect(await rejected(createFile(refunds, "src"))).toEqual({ message: "src already exists." });
+    expect((await read(refunds, "keep.txt")).content).toBe("keep me");
+  });
+
+  it("refuses a file in the way of a parent folder", async () => {
+    const refunds = await repoNamed("refunds-worker");
+    await write(refunds, "inway.txt", "x");
+    const message = "inway.txt is a file, so inway.txt/x.txt cannot go inside it.";
+    expect(await rejected(createFile(refunds, "inway.txt/x.txt"))).toEqual({ message });
+    expect(await rejected(createDir(refunds, "inway.txt/x.txt"))).toEqual({ message });
+  });
+
+  it("refuses paths outside the repo, in the git folder, or with a bad name", async () => {
+    const refunds = await repoNamed("refunds-worker");
+    for (const make of [createFile, createDir]) {
+      expect(await rejected(make(refunds, "../x"))).toEqual({ message: "path outside the repo: ../x" });
+      expect(await rejected(make(refunds, "a/../../x"))).toEqual({ message: "path outside the repo: a/../../x" });
+      expect(await rejected(make(refunds, "/tmp/x"))).toEqual({ message: "path outside the repo: /tmp/x" });
+      expect(await rejected(make(refunds, ".git/hooks/x"))).toEqual({ message: "path inside the git folder: .git/hooks/x" });
+      expect(await rejected(make(refunds, ".GIT/x"))).toEqual({ message: "path inside the git folder: .GIT/x" });
+      expect(await rejected(make(refunds, ""))).toEqual({ message: "No file path given." });
+      for (const name of ["dir/", "a\\b", "nul\0name"]) expect(await rejected(make(refunds, name))).toEqual({ message: `not a valid name: ${name}` });
+    }
+    expect(await listed(refunds)).not.toContain("x");
+  });
+
+  it("emits repo-changed, so the tree refreshes", async () => {
+    const refunds = await repoNamed("refunds-worker");
+    const seen: unknown[] = [];
+    const off = mockListen("repo-changed", (p) => seen.push(p));
+    await createFile(refunds, "events-created.txt");
+    await createDir(refunds, "events-created-dir");
+    await new Promise((r) => setTimeout(r, 250));
+    off();
+    expect(seen.filter((p) => JSON.stringify(p) === JSON.stringify({ repoId: refunds })).length).toBeGreaterThanOrEqual(2);
+  });
+});
+
 const readIgnoreFile = (repoId: string, target: IgnoreTarget) => call<IgnoreFile>("read_ignore_file", { repoId, target });
 const readIgnore = async (repoId: string, target: IgnoreTarget) => (await readIgnoreFile(repoId, target)).content;
 const append = (repoId: string, target: IgnoreTarget, patterns: string[]) => call<string[]>("append_ignore_rules", { repoId, target, patterns });

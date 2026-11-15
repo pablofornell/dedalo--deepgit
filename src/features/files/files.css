@@ -25,6 +25,21 @@
 .dg-fe-fdir { color: var(--dg-text-secondary); font-size: var(--dg-font-size-small); overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
 .dg-fe-grow { flex: 1; min-width: 0; }
 
+/* ---- new file or folder: the name field inside the tree. The message of a refused name floats under the row. */
+.dg-fe-draft-input {
+  flex: 1; min-width: 0; box-sizing: border-box; height: calc(20 * var(--dg-u)); padding: 0 4px; border: 0; border-radius: 3px; outline: 0;
+  background: var(--dg-input-bg); color: var(--dg-input-fg); font: inherit; box-shadow: inset 0 0 0 1px var(--dg-input-border);
+}
+.dg-fe-draft-input::placeholder { color: var(--dg-input-placeholder); }
+.dg-fe-draft-input:focus { box-shadow: inset 0 0 0 var(--dg-focus-width) var(--dg-input-focus-border); }
+.dg-fe-draft-input.is-error { box-shadow: inset 0 0 0 1px var(--dg-input-error-border); }
+.dg-fe-draft-input.is-error:focus { box-shadow: inset 0 0 0 var(--dg-focus-width) var(--dg-input-error-border); }
+.dg-fe-draft-error {
+  position: absolute; z-index: 2; left: 0; right: 0; top: 100%; padding: 2px 6px; border-radius: 3px; white-space: normal;
+  background: var(--dg-popup-bg); color: var(--dg-text-error); font-size: var(--dg-font-size-medium); line-height: calc(16 * var(--dg-u));
+  box-shadow: var(--dg-popup-shadow);
+}
+
 /* ---- search pane */
 .dg-fe-search { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
 .dg-fe-search-bar { flex: none; padding: 4px 8px 6px; }
