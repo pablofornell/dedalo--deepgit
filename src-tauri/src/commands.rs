@@ -415,6 +415,24 @@ pub async fn write_text_file(
     .await
 }
 
+/// JS: `{ repoId, path }`. Creates an empty file and the folders above it. Fails when the name exists.
+#[tauri::command]
+pub async fn create_file(app: AppHandle, state: St<'_>, repo_id: String, path: String) -> Res<()> {
+    write(&app, &state, &repo_id, move |g, r| {
+        gitfiles::create_file(g, r, &path)
+    })
+    .await
+}
+
+/// JS: `{ repoId, path }`. Creates an empty folder and the folders above it. Fails when the name exists.
+#[tauri::command]
+pub async fn create_dir(app: AppHandle, state: St<'_>, repo_id: String, path: String) -> Res<()> {
+    write(&app, &state, &repo_id, move |g, r| {
+        gitfiles::create_dir(g, r, &path)
+    })
+    .await
+}
+
 /// JS: `{ repoId, target: "gitignore" | "exclude", patterns }`. Returns the lines added.
 #[tauri::command]
 pub async fn append_ignore_rules(

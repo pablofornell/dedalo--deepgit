@@ -284,6 +284,153 @@ fn write_refuses_a_folder_and_a_symlink() {
     }
 }
 
+// ------------------------------------------------------------------ create
+
+#[test]
+fn create_file_makes_an_empty_file_and_its_parent_folders() {
+    let repo = TestRepo::new();
+    let g = git();
+    files::create_file(&g, &repo.info, "new.txt").expect("create");
+    assert_eq!(repo.read("new.txt"), "");
+    files::create_file(&g, &repo.info, "a/b/c.txt").expect("create nested");
+    assert_eq!(repo.read("a/b/c.txt"), "");
+    // The new file is untracked, so the list shows it.
+    let list = files::list_files(&g, &repo.info).expect("list");
+    assert_eq!(list.files, vec!["a/b/c.txt", "new.txt"]);
+}
+
+#[test]
+fn create_file_refuses_a_name_that_exists_and_keeps_the_content() {
+    let repo = TestRepo::new();
+    let g = git();
+    repo.commit_file("src/a.rs", "keep me\n", "a");
+    assert_eq!(
+        invalid(files::create_file(&g, &repo.info, "src/a.rs").unwrap_err()),
+        "src/a.rs already exists."
+    );
+    assert_eq!(repo.read("src/a.rs"), "keep me\n");
+    // A folder holds the name too.
+    assert_eq!(
+        invalid(files::create_file(&g, &repo.info, "src").unwrap_err()),
+        "src already exists."
+    );
+    // A file in the way of a parent folder.
+    let err = invalid(files::create_file(&g, &repo.info, "src/a.rs/x.txt").unwrap_err());
+    assert_eq!(
+        err,
+        "src/a.rs is a file, so src/a.rs/x.txt cannot go inside it."
+    );
+    assert_eq!(repo.read("src/a.rs"), "keep me\n");
+}
+
+#[test]
+fn create_refuses_paths_outside_the_repo_and_the_git_folder() {
+    let repo = TestRepo::new();
+    let g = git();
+    for make in [files::create_file, files::create_dir] {
+        assert_eq!(
+            invalid(make(&g, &repo.info, "../x").unwrap_err()),
+            "path outside the repo: ../x"
+        );
+        assert_eq!(
+            invalid(make(&g, &repo.info, "a/../../x").unwrap_err()),
+            "path outside the repo: a/../../x"
+        );
+        assert_eq!(
+            invalid(make(&g, &repo.info, "/tmp/deepgit-create-x").unwrap_err()),
+            "path outside the repo: /tmp/deepgit-create-x"
+        );
+        assert_eq!(
+            invalid(make(&g, &repo.info, ".git/hooks/x").unwrap_err()),
+            "path inside the git folder: .git/hooks/x"
+        );
+        assert_eq!(
+            invalid(make(&g, &repo.info, ".GIT/x").unwrap_err()),
+            "path inside the git folder: .GIT/x"
+        );
+        assert_eq!(
+            invalid(make(&g, &repo.info, "").unwrap_err()),
+            "No file path given."
+        );
+    }
+    assert!(!repo.path().join(".git/hooks/x").exists());
+}
+
+#[test]
+fn create_refuses_a_trailing_separator_a_backslash_and_a_nul() {
+    let repo = TestRepo::new();
+    let g = git();
+    for name in ["dir/", "a\\b", "nul\0name"] {
+        assert_eq!(
+            invalid(files::create_file(&g, &repo.info, name).unwrap_err()),
+            format!("not a valid name: {name}")
+        );
+        assert_eq!(
+            invalid(files::create_dir(&g, &repo.info, name).unwrap_err()),
+            format!("not a valid name: {name}")
+        );
+    }
+}
+
+#[test]
+fn create_dir_makes_an_empty_folder_and_its_parents() {
+    let repo = TestRepo::new();
+    let g = git();
+    files::create_dir(&g, &repo.info, "docs").expect("create");
+    assert!(repo.path().join("docs").is_dir());
+    files::create_dir(&g, &repo.info, "x/y/z").expect("create nested");
+    assert!(repo.path().join("x/y/z").is_dir());
+    // Git does not list an empty folder.
+    assert!(files::list_files(&g, &repo.info)
+        .expect("list")
+        .files
+        .is_empty());
+}
+
+#[test]
+fn create_dir_refuses_a_name_that_exists() {
+    let repo = TestRepo::new();
+    let g = git();
+    repo.commit_file("src/a.rs", "a\n", "a");
+    assert_eq!(
+        invalid(files::create_dir(&g, &repo.info, "src").unwrap_err()),
+        "src already exists."
+    );
+    assert_eq!(
+        invalid(files::create_dir(&g, &repo.info, "src/a.rs").unwrap_err()),
+        "src/a.rs already exists."
+    );
+    assert_eq!(
+        invalid(files::create_dir(&g, &repo.info, "src/a.rs/deeper").unwrap_err()),
+        "src/a.rs is a file, so src/a.rs/deeper cannot go inside it."
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn create_does_not_follow_a_symlink_out_of_the_repo() {
+    let repo = TestRepo::new();
+    let g = git();
+    let outside = tempfile::tempdir().expect("outside dir");
+    std::os::unix::fs::symlink(outside.path(), repo.path().join("link")).expect("symlink");
+    for make in [files::create_file, files::create_dir] {
+        assert_eq!(
+            invalid(make(&g, &repo.info, "link/x").unwrap_err()),
+            "path outside the repo: link/x"
+        );
+        assert_eq!(
+            invalid(make(&g, &repo.info, "link/deep/x").unwrap_err()),
+            "path outside the repo: link/deep/x"
+        );
+        // The symlink itself is an entry that exists.
+        assert_eq!(
+            invalid(make(&g, &repo.info, "link").unwrap_err()),
+            "link already exists."
+        );
+    }
+    assert_eq!(std::fs::read_dir(outside.path()).expect("read").count(), 0);
+}
+
 // ------------------------------------------------------------------ search
 
 #[test]

@@ -2,8 +2,9 @@
 import { describe, expect, it } from "vitest";
 import type { FileChange, WorkingTree } from "../../api/types";
 import {
-  SEP, buildTree, closeTab, columnOffset, dirNodeStatus, errorText, fileNodeStatus, folderStatus, folderStatuses, groupHits, isStaleVersion, lineSeparatorOf,
-  matchRange, openTab, rankFiles, repoNode, revealIds, scopeId, statusMap, tabLabels, tabsToClose, type DirNode,
+  SEP, buildTree, checkNewName, closeTab, columnOffset, dirNodeStatus, draftNode, emptyFolders, errorText, fileNodeStatus, folderChain, folderStatus, folderStatuses,
+  groupHits, isStaleVersion, knownEntries, lineSeparatorOf, matchRange, newEntryDir, openTab, rankFiles, repoNode, revealIds, scopeId, statusMap, tabLabels, tabsToClose,
+  withDraft, type DirNode, type RepoNode, type TreeNode,
 } from "./model";
 
 const change = (path: string, status: FileChange["status"]): FileChange => ({ path, oldPath: null, status, additions: 0, deletions: 0, binary: false });
@@ -338,5 +339,146 @@ describe("error and stale-version helpers", () => {
   it("recognises the changed-on-disk message", () => {
     expect(isStaleVersion("The file changed on disk. Reload it before you save.")).toBe(true);
     expect(isStaleVersion("Permission denied")).toBe(false);
+  });
+});
+
+describe("new file or folder: where the draft row goes", () => {
+  const names = (list: readonly TreeNode[]) => list.map((n) => (n.kind === "draft" ? "<draft>" : n.kind === "repo" ? n.name : n.name));
+  const tree = () => buildTree(["src/app/main.ts", "src/lib.rs", "docs/", "README.md", "zeta.txt"], "r1");
+
+  it("finds the folder of the node that was clicked", () => {
+    const t = buildTree(["src/app/main.ts", "README.md"], "r1");
+    const src = t[0] as DirNode;
+    expect(newEntryDir(src)).toBe("src/");
+    expect(newEntryDir(src.children[0])).toBe("src/app/");
+    expect(newEntryDir((src.children[0] as DirNode).children[0])).toBe("src/app/");
+    expect(newEntryDir(t[1])).toBe("");
+    expect(newEntryDir(repoNode("r1", "one", []))).toBe("");
+  });
+
+  it("puts a new file first among the files and a new folder first among the folders", () => {
+    expect(names(withDraft(tree(), draftNode("r1", "", false)))).toEqual(["docs", "src", "<draft>", "README.md", "zeta.txt"]);
+    expect(names(withDraft(tree(), draftNode("r1", "", true)))).toEqual(["<draft>", "docs", "src", "README.md", "zeta.txt"]);
+  });
+
+  it("puts the draft in a nested folder and leaves the other nodes alone", () => {
+    const before = tree();
+    const out = withDraft(before, draftNode("r1", "src/app/", false));
+    const src = out.find((n) => n.kind === "dir" && n.name === "src") as DirNode;
+    const app = src.children.find((n) => n.name === "app") as DirNode;
+    expect(names(app.children)).toEqual(["<draft>", "main.ts"]);
+    expect(out.find((n) => n.kind === "dir" && n.name === "docs")).toBe(before.find((n) => n.kind === "dir" && n.name === "docs"));
+    // The input tree is not changed.
+    expect(names((before[1] as DirNode).children)).toEqual(["app", "lib.rs"]);
+  });
+
+  it("puts the draft in an empty folder, which gets a child", () => {
+    const out = withDraft(tree(), draftNode("r1", "docs/", false));
+    expect(names((out[0] as DirNode).children)).toEqual(["<draft>"]);
+  });
+
+  it("puts the draft in the repo that owns it in a multi-repo tree", () => {
+    const roots: TreeNode[] = [repoNode("a", "alpha", ["x.ts"]), repoNode("b", "beta", ["y/z.ts"])];
+    const out = withDraft(roots, draftNode("b", "y/", true));
+    expect(names((out[0] as RepoNode).children)).toEqual(["x.ts"]);
+    const beta = out[1] as RepoNode;
+    expect(names((beta.children[0] as DirNode).children)).toEqual(["<draft>", "z.ts"]);
+    expect(names((withDraft(roots, draftNode("a", "", false))[0] as RepoNode).children)).toEqual(["<draft>", "x.ts"]);
+  });
+
+  it("shows no draft when its folder is not in the tree", () => {
+    expect(names(withDraft(tree(), draftNode("r1", "gone/", false)))).toEqual(["docs", "src", "README.md", "zeta.txt"]);
+  });
+
+  it("gives each draft an id that no file has", () => {
+    const a = draftNode("r1", "", false);
+    expect(a.id).not.toBe(draftNode("r1", "src/", false).id);
+    expect(a.id).not.toBe(scopeId("r1", ""));
+  });
+});
+
+describe("new file or folder: the name", () => {
+  const known = knownEntries(["src/main.rs", "src/app/view.ts", "README.md", "dist/", "empty/"]);
+  const path = (raw: string, dir = "", isDir = false) => checkNewName(raw, dir, isDir, known);
+
+  it("accepts a plain name and a nested path, in the folder given", () => {
+    expect(path("notes.txt")).toEqual({ path: "notes.txt" });
+    expect(path("a/b/c.txt")).toEqual({ path: "a/b/c.txt" });
+    expect(path("new.rs", "src/")).toEqual({ path: "src/new.rs" });
+    expect(path("  spaced.txt  ")).toEqual({ path: "spaced.txt" });
+    expect(path("sub/deeper", "src/", true)).toEqual({ path: "src/sub/deeper" });
+  });
+
+  it("lets a new folder end with a slash and refuses that for a file", () => {
+    expect(path("lib/", "", true)).toEqual({ path: "lib" });
+    expect(path("lib/")).toEqual({ error: "A name cannot start or end with / or have an empty part." });
+  });
+
+  it("refuses an empty name", () => {
+    expect(path("")).toEqual({ error: "Enter a name." });
+    expect(path("   ")).toEqual({ error: "Enter a name." });
+    expect(path("/", "", true)).toEqual({ error: "Enter a name." });
+  });
+
+  it("refuses a backslash, a control character and empty parts", () => {
+    expect(path("a\\b")).toMatchObject({ error: expect.stringContaining("backslash") });
+    expect(path("a\u0000b")).toMatchObject({ error: expect.stringContaining("control") });
+    expect(path("a\tb")).toMatchObject({ error: expect.stringContaining("control") });
+    expect(path("/abs.txt")).toMatchObject({ error: expect.stringContaining("empty part") });
+    expect(path("a//b.txt")).toMatchObject({ error: expect.stringContaining("empty part") });
+  });
+
+  it("refuses . and .. as a part, so the path cannot leave the repo", () => {
+    expect(path("..")).toEqual({ error: '".." is not allowed in a name.' });
+    expect(path("../x.txt")).toEqual({ error: '".." is not allowed in a name.' });
+    expect(path("a/../../x")).toEqual({ error: '".." is not allowed in a name.' });
+    expect(path("./x.txt")).toEqual({ error: '"." is not allowed in a name.' });
+  });
+
+  it("refuses .git in any case, at any depth", () => {
+    for (const name of [".git", ".GIT/hooks", "a/.git/x", ".Git"]) expect(path(name)).toEqual({ error: "A new entry cannot go inside .git." });
+    // A name that only starts with .git is fine.
+    expect(path(".gitkeep")).toEqual({ path: ".gitkeep" });
+    expect(path(".github/workflows/ci.yml")).toEqual({ path: ".github/workflows/ci.yml" });
+  });
+
+  it("refuses a name that exists: a file, a folder, an ignored folder or an empty one", () => {
+    expect(path("README.md")).toEqual({ error: '"README.md" already exists here.' });
+    expect(path("main.rs", "src/")).toEqual({ error: '"main.rs" already exists here.' });
+    expect(path("src")).toEqual({ error: '"src" already exists here.' });
+    expect(path("app", "src/", true)).toEqual({ error: '"app" already exists here.' });
+    expect(path("dist", "", true)).toEqual({ error: '"dist" already exists here.' });
+    expect(path("empty")).toEqual({ error: '"empty" already exists here.' });
+    expect(path("src/main.rs")).toEqual({ error: '"src/main.rs" already exists here.' });
+  });
+
+  it("refuses a path that goes through a file", () => {
+    expect(path("README.md/x.txt")).toEqual({ error: '"README.md" is a file, so nothing can go inside it.' });
+    expect(path("main.rs/deep/x", "src/")).toEqual({ error: '"src/main.rs" is a file, so nothing can go inside it.' });
+  });
+
+  it("is case sensitive: the disk decides on a case-insensitive file system", () => {
+    expect(path("readme.md")).toEqual({ path: "readme.md" });
+  });
+});
+
+describe("new file or folder: the entries that exist", () => {
+  it("reads every folder above a path, and a path with a trailing slash as a folder", () => {
+    const k = knownEntries(["a/b/c.txt", "d.txt", "out/"]);
+    expect([...k.files].sort()).toEqual(["a/b/c.txt", "d.txt"]);
+    expect([...k.dirs].sort()).toEqual(["a", "a/b", "out"]);
+  });
+
+  it("lists the folders that a path makes", () => {
+    expect(folderChain("a/b/c.txt")).toEqual(["a/", "a/b/"]);
+    expect(folderChain("c.txt")).toEqual([]);
+    expect(folderChain("a/b/")).toEqual(["a/", "a/b/"]);
+  });
+
+  it("keeps a new folder until a file lies in it", () => {
+    const dirs = new Set(["docs/", "src/new/", "src/"]);
+    expect([...emptyFolders(dirs, ["src/new/a.ts", "x.ts"])].sort()).toEqual(["docs/"]);
+    expect([...emptyFolders(dirs, ["src/a.ts"])].sort()).toEqual(["docs/", "src/new/"]);
+    expect(emptyFolders(new Set(), ["a"]).size).toBe(0);
   });
 });

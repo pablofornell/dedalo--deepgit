@@ -4,8 +4,8 @@
 //! ones that touch `.git/info/exclude`.
 
 use std::collections::{BTreeSet, HashSet};
-use std::io::Read;
 use std::io::Write;
+use std::io::{ErrorKind, Read};
 use std::path::{Component, Path, PathBuf};
 
 use crate::conflicts::write_worktree_file;
@@ -213,6 +213,81 @@ pub fn write_text_file(
 
 fn changed_on_disk() -> GitError {
     GitError::Invalid("The file changed on disk. Reload it before you save.".to_string())
+}
+
+/// Create a new empty file in the worktree. Make the missing folders above it. Refuse a name that
+/// exists (a file, a folder or a symlink), a path outside the repo, a path into the git folder, and
+/// a name that ends with a separator or holds a backslash.
+pub fn create_file(_git: &Git, repo: &RepoInfo, path: &str) -> Result<(), GitError> {
+    let full = new_entry_path(repo, path)?;
+    make_parents(repo, &full, path)?;
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&full)
+    {
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(already_exists(path)),
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// Create a new empty folder in the worktree. Make the missing folders above it. The same
+/// refusals as [`create_file`]. Git does not track an empty folder, so it shows in no status.
+pub fn create_dir(_git: &Git, repo: &RepoInfo, path: &str) -> Result<(), GitError> {
+    let full = new_entry_path(repo, path)?;
+    make_parents(repo, &full, path)?;
+    match std::fs::create_dir(&full) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(already_exists(path)),
+        Err(e) => Err(e.into()),
+    }
+}
+
+fn already_exists(path: &str) -> GitError {
+    GitError::Invalid(format!("{path} already exists."))
+}
+
+/// The full path of a new file or folder. Check the name, keep the path inside the repo, and refuse
+/// an entry that is there already.
+fn new_entry_path(repo: &RepoInfo, path: &str) -> Result<PathBuf, GitError> {
+    check_path(path)?;
+    if path.ends_with('/') || path.contains(['\\', '\0']) {
+        return Err(GitError::Invalid(format!("not a valid name: {path}")));
+    }
+    let full = worktree_path(repo, path)?;
+    match std::fs::symlink_metadata(&full) {
+        Ok(_) => Err(already_exists(path)),
+        // A file above the name gives NotADirectory. `make_parents` words that error.
+        Err(e) if matches!(e.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) => Ok(full),
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// Make the folders above `full`. Refuse a path that goes through a file or a symlink to a file.
+fn make_parents(repo: &RepoInfo, full: &Path, path: &str) -> Result<(), GitError> {
+    let Some(parent) = full.parent() else {
+        return Ok(());
+    };
+    let root = Path::new(&repo.path);
+    let mut walk = root.to_path_buf();
+    for part in parent.strip_prefix(root).unwrap_or(Path::new("")).iter() {
+        walk.push(part);
+        match std::fs::metadata(&walk) {
+            Ok(m) if m.is_dir() => {}
+            Ok(_) => {
+                let shown = walk.strip_prefix(root).unwrap_or(&walk).to_string_lossy();
+                return Err(GitError::Invalid(format!(
+                    "{} is a file, so {path} cannot go inside it.",
+                    shown.replace('\\', "/")
+                )));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => break,
+            Err(e) => return Err(e.into()),
+        }
+    }
+    std::fs::create_dir_all(parent)?;
+    Ok(())
 }
 
 /// Read the text of an ignore file, and the case rule of the repo (`core.ignorecase`, false when unset).

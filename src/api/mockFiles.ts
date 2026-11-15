@@ -198,6 +198,31 @@ export function appendIgnoreLines(existing: string, patterns: readonly string[])
   return { text: existing + lead + added.map((l) => l + eol).join(""), added };
 }
 
+/**
+ * Why `create_file` / `create_dir` refuse a new `path`, or null (`files::create_file` and `create_dir`). `emptyDirs` holds
+ * the folders that exist with no file in them (git does not list those). Checks the path rules first, then the name, then
+ * a file in the way of a parent folder, then a name that exists.
+ */
+export function createEntryError(files: Map<string, string>, emptyDirs: ReadonlySet<string>, path: string): string | null {
+  const refused = filePathError(path);
+  if (refused !== null) return refused;
+  if (path.endsWith("/") || path.includes("\\") || path.includes("\0")) return `not a valid name: ${path}`;
+  const parts = fileKey(path).split("/");
+  for (let i = 1; i < parts.length; i++) {
+    const above = parts.slice(0, i).join("/");
+    if (files.has(above)) return `${above} is a file, so ${path} cannot go inside it.`;
+  }
+  const key = parts.join("/");
+  if (files.has(key) || emptyDirs.has(key) || isFolder(files, key)) return `${key} already exists.`;
+  return null;
+}
+
+/** The folders above `path` and `path` itself, outermost first (`a/b/c` gives `a`, `a/b`, `a/b/c`). */
+export function folderChain(path: string): string[] {
+  const parts = fileKey(path).split("/");
+  return parts.map((_, i) => parts.slice(0, i + 1).join("/"));
+}
+
 /** A small, realistic file for each path the fixed set names. */
 export const FIXED_FILES: Record<string, string> = {
   "README.md": "# Overview\n\nThis repository holds the service code.\n\n## Build\n\nRun `npm run build` to build the app.\n",

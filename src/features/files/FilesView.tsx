@@ -3,7 +3,8 @@
  * Each open file keeps its own undo history. The tree shows the git status of files and folders.
  * A save checks that the file did not change on disk.
  *
- * This is not a full IDE. There is no rename and no create.
+ * This is not a full IDE. There is no rename. A right-click in the tree, or the `+` button, creates a file or a folder:
+ * a name field opens inside the tree (see "new file or folder" below).
  * A clean tab reloads when its file changes on disk. A tab with unsaved changes keeps its text.
  * The tree is on the right of the editor. A right-click on a tab opens the close and copy-path menu.
  * Shortcuts work on this tab only: Ctrl+S saves, Ctrl+P opens a file by name, Ctrl+Shift+F searches the project,
@@ -17,7 +18,7 @@ import * as api from "../../api/tauri";
 import type { FileStatus, TextFile } from "../../api/types";
 import {
   Button, Dialog, EmptyState, Icon, IconButton, Kbd, Spinner, Splitter, StatusLetter, Tree, copyText, createExpanded, fileIconFor, joinRepoPath, loadSplitSize, openContextMenu,
-  openDialog, splitPath, statusColorVar, tip, toast, type DialogComponentProps, type MenuItem, type TreeApi, type TreeRowInfo,
+  openDialog, openMenu, splitPath, statusColorVar, tip, toast, type DialogComponentProps, type MenuItem, type TreeApi, type TreeRowInfo,
 } from "../../components/ui";
 import { confirmAction } from "../../state/dialogs";
 import { repoVersion } from "../../state/events";
@@ -30,10 +31,10 @@ import { createFileState, saveText } from "./editor";
 import { openFind } from "./find/panel";
 import { ProjectSearch, type SearchApi, type SearchOpen } from "./ProjectSearch";
 import { QuickOpen, type QuickFile } from "./QuickOpen";
-import { openTreeMenu } from "./treeMenu";
+import { newEntryMenuItems, openTreeMenu, type NewEntry } from "./treeMenu";
 import {
-  SEP, buildTree, closeTab, dirNodeStatus, errorText, fileNodeStatus, folderStatuses, isStaleVersion, matchRange, openTab, repoNode, revealIds, scopeId, statusMap,
-  tabLabels, tabsToClose, type CloseAction, type TreeNode,
+  SEP, buildTree, checkNewName, closeTab, dirNodeStatus, draftNode, emptyFolders, errorText, fileNodeStatus, folderChain, folderStatuses, isStaleVersion, knownEntries,
+  matchRange, newEntryDir, openTab, repoNode, revealIds, scopeId, statusMap, tabLabels, tabsToClose, withDraft, type CloseAction, type DraftNode, type TreeNode,
 } from "./model";
 import "./files.css";
 
@@ -116,6 +117,10 @@ export function FilesView(): JSX.Element {
   const [sel, setSel] = createSignal<TreeNode | null>(null);
   const [expanded, ex] = createExpanded();
   let expandedFor = "";
+  // ---- new file or folder. `draft` is the name row in the tree. `newDirs` are the folders made here that hold no file yet.
+  const [draft, setDraft] = createSignal<DraftNode | null>(null);
+  const [draftError, setDraftError] = createSignal("");
+  const [newDirs, setNewDirs] = createSignal<Map<string, Set<string>>>(new Map());
 
   // ---- open tabs. The order and the data are signals. The editor states are plain maps, because they hold the documents.
   const [order, setOrder] = createSignal<string[]>([]);
@@ -486,7 +491,10 @@ export function FilesView(): JSX.Element {
     ]);
     if (my !== token) return;
     const changed = before.size !== ls.length || ls.some(([id, d]) => !sameList(before.get(id), d));
-    if (changed) setLists(new Map(ls));
+    if (changed) {
+      setLists(new Map(ls));
+      dropFilledDirs(ls);
+    }
     setStatuses(new Map(sts));
     setLoaded(true);
     // A project with several repos opens with its repos expanded. This happens once for each set of repos.
@@ -540,12 +548,17 @@ export function FilesView(): JSX.Element {
   // ---- the tree
 
   // The tree shows the ignored entries too. An ignored folder has no children: its content is not listed.
-  const treePaths = (d: RepoData | undefined): string[] => (d ? [...d.files, ...d.ignored] : []);
-  const roots = createMemo<TreeNode[]>(() => {
+  // A folder that this view made and that holds no file yet is shown too: git does not list an empty folder.
+  const treePaths = (repoId: string, d: RepoData | undefined): string[] => (d ? [...d.files, ...d.ignored, ...(newDirs().get(repoId) ?? [])] : []);
+  const baseRoots = createMemo<TreeNode[]>(() => {
     const repos = projectRepos();
     const data = lists();
-    if (repos.length === 1) return buildTree(treePaths(data.get(repos[0].id)), repos[0].id);
-    return repos.filter((r) => data.has(r.id)).map((r) => repoNode(r.id, r.name, treePaths(data.get(r.id))));
+    if (repos.length === 1) return buildTree(treePaths(repos[0].id, data.get(repos[0].id)), repos[0].id);
+    return repos.filter((r) => data.has(r.id)).map((r) => repoNode(r.id, r.name, treePaths(r.id, data.get(r.id))));
+  });
+  const roots = createMemo<TreeNode[]>(() => {
+    const d = draft();
+    return d ? withDraft(baseRoots(), d) : baseRoots();
   });
   const ignoredSets = createMemo(() => new Map([...lists()].map(([id, d]): [string, Set<string>] => [id, new Set(d.ignored)])));
   const NO_IGNORED: ReadonlySet<string> = new Set();
@@ -563,6 +576,7 @@ export function FilesView(): JSX.Element {
   });
 
   const renderNode = (n: TreeNode, info: TreeRowInfo): JSX.Element => {
+    if (n.kind === "draft") return draftRow(n);
     if (n.kind === "repo") {
       return (
         <>
@@ -619,6 +633,7 @@ export function FilesView(): JSX.Element {
     if (pressOnRow) window.addEventListener("mouseup", releasePress, { once: true });
   };
   const onTreeSelect = (n: TreeNode): void => {
+    if (n.kind === "draft") return;
     setSel(n);
     if (!pressOnRow) return;
     pressOnRow = false;
@@ -637,6 +652,194 @@ export function FilesView(): JSX.Element {
       treeApi?.scrollToId(id, "center");
       treeApi?.focus();
     });
+  };
+
+  // ---- new file or folder
+  // A name field opens inside the tree, in the folder that was asked for. Enter creates, Esc and a lost focus cancel.
+
+  /** The name field. One element serves the whole draft, so a rebuilt row keeps the typed text and the cursor. */
+  let draftEl: HTMLInputElement | undefined;
+  /** True while the backend creates the entry. The field ignores keys and a lost focus then. */
+  let creating = false;
+
+  /** Forgets the new folders of a repo that now hold a file: git lists them from then on. */
+  const dropFilledDirs = (ls: readonly (readonly [string, RepoData])[]): void => {
+    const now = untrack(newDirs);
+    if (now.size === 0) return;
+    const next = new Map<string, Set<string>>();
+    for (const [repoId, dirs] of now) {
+      const data = ls.find(([id]) => id === repoId)?.[1];
+      const kept = data && !data.error ? emptyFolders(dirs, data.files) : dirs;
+      if (kept.size > 0) next.set(repoId, kept);
+    }
+    setNewDirs(next);
+  };
+
+  const endDraft = (): void => {
+    draftEl = undefined;
+    setDraft(null);
+    setDraftError("");
+  };
+
+  /** Closes the name field without creating anything. `refocus` puts the focus back on the tree (Esc). */
+  const cancelDraft = (refocus: boolean): void => {
+    if (creating) return;
+    endDraft();
+    if (refocus) requestAnimationFrame(() => treeApi?.focus());
+  };
+
+  /** Selects the new entry in the tree, with its folders open. It does not take the focus. */
+  const revealNew = (repoId: string, path: string, isDir: boolean): void => {
+    ex.set(new Set([...untrack(expanded), ...revealIds(repoId, path, projectRepos().length > 1)]));
+    const name = path.slice(path.lastIndexOf("/") + 1);
+    const id = scopeId(repoId, isDir ? path + "/" : path);
+    setSel(isDir ? { kind: "dir", id, repoId, path: path + "/", name, children: [] } : { kind: "file", id, repoId, path, name });
+    requestAnimationFrame(() => treeApi?.scrollToId(id, "auto"));
+  };
+
+  /** Checks the name, asks the backend to create the entry, and shows it. A refused name stays in the field with its message. */
+  const submitDraft = async (): Promise<void> => {
+    const d = untrack(draft);
+    const el = draftEl;
+    if (!d || !el || creating) return;
+    const known = knownEntries(untrack(() => treePaths(d.repoId, lists().get(d.repoId))));
+    const checked = checkNewName(el.value, d.dir, d.isDir, known);
+    if ("error" in checked) {
+      setDraftError(checked.error);
+      return;
+    }
+    const path = checked.path;
+    creating = true;
+    el.readOnly = true;
+    try {
+      try {
+        await (d.isDir ? api.createDir(d.repoId, path) : api.createFile(d.repoId, path));
+      } catch (e) {
+        setDraftError(errorText(e));
+        return;
+      }
+      if (d.isDir) {
+        setNewDirs((m) => new Map(m).set(d.repoId, new Set([...(m.get(d.repoId) ?? []), ...folderChain(path + "/")])));
+      }
+      // The new file shows in the list and its status shows too. Another refresh can win the race: look again once.
+      const listed = (): boolean => {
+        const data = untrack(lists).get(d.repoId);
+        return !!data && (data.files.includes(path) || data.ignored.includes(path));
+      };
+      await refreshAll();
+      if (!d.isDir && !listed()) await refreshAll();
+    } finally {
+      creating = false;
+      el.readOnly = false;
+    }
+    endDraft();
+    revealNew(d.repoId, path, d.isDir);
+    if (d.isDir) requestAnimationFrame(() => treeApi?.focus());
+    else await openFile(d.repoId, path, () => view?.focus());
+  };
+
+  const makeDraftInput = (d: DraftNode): HTMLInputElement => {
+    const el = document.createElement("input");
+    el.type = "text";
+    el.className = "dg-fe-draft-input";
+    el.spellcheck = false;
+    el.autocomplete = "off";
+    el.placeholder = d.isDir ? "Folder name" : "File name";
+    el.setAttribute("aria-label", d.isDir ? "New folder name" : "New file name");
+    el.addEventListener("keydown", (e) => {
+      // The tree and the shortcuts must not see these keys: Enter would open a row, the arrows would move the selection.
+      e.stopPropagation();
+      if (e.isComposing) return;
+      if (creating) {
+        e.preventDefault();
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        void submitDraft();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        cancelDraft(true);
+      }
+    });
+    el.addEventListener("input", () => setDraftError(""));
+    // A press in the field must not select, open or drag a tree row.
+    for (const type of ["mousedown", "click", "dblclick"]) el.addEventListener(type, (e) => e.stopPropagation());
+    el.addEventListener("blur", () => {
+      // A rebuilt row moves the field and can blur it for a moment. Look again after that.
+      setTimeout(() => {
+        if (draftEl === el && !creating && document.activeElement !== el) cancelDraft(false);
+      }, 0);
+    });
+    return el;
+  };
+
+  /** Opens the name field for a new file or folder in `dir` ("" or a path that ends with "/") of a repo. */
+  const startDraft = (repoId: string, dir: string, isDir: boolean): void => {
+    if (!repoById(repoId) || creating) return;
+    setLeftTab("files");
+    const d = draftNode(repoId, dir, isDir);
+    draftEl = makeDraftInput(d);
+    setDraftError("");
+    // The folders above the new entry open, and the root of the repo when the tree has one.
+    ex.set(new Set([...untrack(expanded), ...revealIds(repoId, dir + "x", projectRepos().length > 1)]));
+    setDraft(d);
+    const el = draftEl;
+    requestAnimationFrame(() => {
+      if (draftEl !== el) return;
+      treeApi?.scrollToId(d.id, "auto");
+      el.focus({ preventScroll: true });
+    });
+  };
+
+  /** The `New` action for a row: the new entry goes in the folder of the row, or in the repo root for a repo row. */
+  const newEntryAt = (n: TreeNode): NewEntry | undefined =>
+    n.kind === "draft" ? undefined : (isDir) => startDraft(n.repoId, newEntryDir(n), isDir);
+
+  /** The repo of the selected row, else the first repo. */
+  const targetRepoId = (): string | undefined => {
+    const n = sel();
+    return n && n.kind !== "draft" && repoById(n.repoId) ? n.repoId : projectRepos()[0]?.id;
+  };
+  /** The `+` button: the folder of the selected row, else the root of the repo. */
+  const newAtSelection: NewEntry = (isDir) => {
+    const n = sel();
+    if (n && n.kind !== "draft" && repoById(n.repoId)) startDraft(n.repoId, newEntryDir(n), isDir);
+    else {
+      const id = targetRepoId();
+      if (id) startDraft(id, "", isDir);
+    }
+  };
+  /** A right-click on the empty space of the tree: the root of the repo. */
+  const onPaneMenu = (e: MouseEvent): void => {
+    if ((e.target as Element | null)?.closest?.(".dg-tree-row, .dg-fe-notice")) return;
+    const id = targetRepoId();
+    if (id) openContextMenu(e, newEntryMenuItems((isDir) => startDraft(id, "", isDir)));
+  };
+
+  /** The row of the draft: an icon and the name field. A refused name shows its message under the field. */
+  const draftRow = (n: DraftNode): JSX.Element => {
+    const el = draftEl;
+    if (!el) return null;
+    createEffect(() => {
+      const err = draftError();
+      el.classList.toggle("is-error", err !== "");
+      el.title = err;
+      el.setAttribute("aria-invalid", String(err !== ""));
+    });
+    // The tree rebuilds a row when the list changes. Give the focus back to the field after that.
+    queueMicrotask(() => {
+      if (draftEl === el && el.isConnected && document.activeElement !== el) el.focus({ preventScroll: true });
+    });
+    return (
+      <>
+        <Icon name={n.isDir ? "folder" : "file"} size={16} class="dg-fe-ficon" />
+        {el}
+        <Show when={draftError()}>
+          <div class="dg-fe-draft-error" role="alert">
+            {draftError()}
+          </div>
+        </Show>
+      </>
+    );
   };
 
   const emptyTree = (): string => (projectRepos().length === 0 ? "Add a project to see its files." : "No files in this project.");
@@ -833,32 +1036,39 @@ export function FilesView(): JSX.Element {
             Search
           </button>
           <span class="dg-grow" />
+          <IconButton
+            icon="plus"
+            label="New file or folder"
+            disabled={projectRepos().length === 0}
+            onClick={(e) => openMenu(e.currentTarget, newEntryMenuItems(newAtSelection))}
+          />
           <IconButton icon="refresh" label="Refresh the file list" onClick={() => void refreshAll()} />
           <IconButton icon="collapse" label="Collapse all" onClick={() => ex.clear()} />
         </div>
-        <div class="dg-fe-pane" hidden={leftTab() !== "files"}>
+        <div class="dg-fe-pane" hidden={leftTab() !== "files"} onContextMenu={onPaneMenu}>
           <Show when={truncated()}>
             <div class="dg-fe-notice">{TOO_MANY}</div>
           </Show>
           <For each={notices()}>{(n) => <div class="dg-fe-notice is-error">{n}</div>}</For>
-          <Show when={roots().length > 0} fallback={<Show when={loaded()} fallback={<div class="dg-fe-loading"><Spinner /></div>}><div class="dg-fe-empty">{emptyTree()}</div></Show>}>
+          <Show when={roots().length > 0 || !!draft()} fallback={<Show when={loaded()} fallback={<div class="dg-fe-loading"><Spinner /></div>}><div class="dg-fe-empty">{emptyTree()}</div></Show>}>
             <div class="dg-fe-tree" onMouseDown={onTreeDown}>
               <Tree<TreeNode>
                 roots={roots()}
                 getId={(n) => n.id}
-                getChildren={(n) => (n.kind === "file" ? undefined : n.children)}
+                getChildren={(n) => (n.kind === "file" || n.kind === "draft" ? undefined : n.children)}
                 expanded={expanded()}
                 onExpandedChange={ex.set}
                 selectedId={sel()?.id ?? null}
                 onSelect={onTreeSelect}
                 onActivate={(n) => (n.kind === "file" ? openNode(n) : ex.toggle(n.id))}
                 onContextMenu={(n, e) => {
+                  if (n.kind === "draft") return;
                   setSel(n);
                   const ignored =
                     n.kind === "file"
                       ? fileNodeStatus(n.path, statusOf(n.repoId).files, ignoredOf(n.repoId)) === "ignored"
                       : n.kind === "dir" && dirNodeStatus(n.path, statusOf(n.repoId).folders, ignoredOf(n.repoId)) === "ignored";
-                  openTreeMenu(n, e, ignored);
+                  openTreeMenu(n, e, ignored, newEntryAt(n));
                 }}
                 ariaLabel="Project files"
                 renderNode={renderNode}

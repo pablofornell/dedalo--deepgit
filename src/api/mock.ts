@@ -14,7 +14,7 @@ import {
   type MockCommit, type MockRepo, type MockStash, type Scenario,
 } from "./mockData";
 import { buildFileDiff, fileText, toFileChange } from "./mockDiff";
-import { CHANGED_ON_DISK, appendIgnoreLines, fileKey, filePathError, ignorePatternError, isFolder, listFiles, readText, searchFiles, versionOf } from "./mockFiles";
+import { CHANGED_ON_DISK, appendIgnoreLines, createEntryError, fileKey, folderChain, filePathError, ignorePatternError, isFolder, listFiles, readText, searchFiles, versionOf } from "./mockFiles";
 import { uniqueProjectName, validateProjectName } from "./projectName";
 import { validateRefName } from "../features/dialogs/refname";
 import { entryOf, genericConflicts, currentOids, hasStage, isTextConflict, sideStages, versionsOf, type MockConflict } from "./mockConflicts";
@@ -934,6 +934,30 @@ const handlers: Record<string, Handler> = {
     emitChanged(repo);
     return versionOf(content);
   },
+  create_file: (a) => {
+    const repo = repoOf(a.repoId);
+    const path = stringArg(a, "path", "create_file");
+    const refused = createEntryError(repo.worktree, emptyDirsOf(repo), path);
+    if (refused !== null) fail(refused);
+    const key = fileKey(path);
+    repo.worktree.set(key, "");
+    // The new file is untracked, unless a rule ignores it. Git hides an ignored file.
+    const rules = ignore({ ignorecase: false }).add(ignoreText(repo, "gitignore")).add(ignoreText(repo, "exclude"));
+    if (rules.ignores(key)) repo.ignored.add(key);
+    else if (![...repo.wt.staged, ...repo.wt.unstaged, ...repo.wt.conflicted].some((f) => f.path === key)) {
+      repo.wt.unstaged.push({ path: key, oldPath: null, status: "untracked", additions: 0, deletions: 0, binary: false });
+    }
+    emitChanged(repo);
+  },
+  create_dir: (a) => {
+    const repo = repoOf(a.repoId);
+    const path = stringArg(a, "path", "create_dir");
+    const empty = emptyDirsOf(repo);
+    const refused = createEntryError(repo.worktree, empty, path);
+    if (refused !== null) fail(refused);
+    for (const dir of folderChain(path)) empty.add(dir);
+    emitChanged(repo);
+  },
   append_ignore_rules: (a, c) => {
     const repo = repoOf(a.repoId);
     const target = ignoreTargetArg(a, "append_ignore_rules");
@@ -1609,6 +1633,15 @@ function stashRestore(a: Args, c: Ctx, drop: boolean): OpResult {
 
 /** The text of `.git/info/exclude` of each mock repo. A repo that is not here has an empty file. */
 const excludeTexts = new WeakMap<MockRepo, string>();
+
+/** The folders of each mock repo that exist with no file in them. Git does not list them, so `list_files` does not either. */
+const emptyDirs = new WeakMap<MockRepo, Set<string>>();
+
+function emptyDirsOf(repo: MockRepo): Set<string> {
+  let set = emptyDirs.get(repo);
+  if (!set) emptyDirs.set(repo, (set = new Set()));
+  return set;
+}
 
 function ignoreText(repo: MockRepo, target: IgnoreTarget): string {
   return target === "gitignore" ? (repo.worktree.get(".gitignore") ?? "") : (excludeTexts.get(repo) ?? "");
