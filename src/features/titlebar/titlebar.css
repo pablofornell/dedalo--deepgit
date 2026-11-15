@@ -10,7 +10,7 @@
 .dg-titlebar-left { flex: 1 1 0; }
 .dg-titlebar-right { flex: 1 1 0; justify-content: flex-end; }
 .dg-titlebar-center { flex: 0 1 var(--dg-titlebar-search-max-width); display: flex; justify-content: center; min-width: 0; }
-.dg-titlebar-logo { flex: none; margin: 0 var(--dg-space-4) 0 var(--dg-space-1); }
+.dg-titlebar-left > .dg-applogo { flex: none; margin: 0 var(--dg-space-4) 0 var(--dg-space-1); }
 .dg-titlebar-sep { flex: none; width: 1px; height: calc(20 * var(--dg-u)); margin: 0 var(--dg-space-3); background: var(--dg-toolbar-separator); }
 
 /* ---- dropdown buttons (project, branch) */

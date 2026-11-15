@@ -7,6 +7,12 @@
 .dg-icon { flex: none; color: var(--dg-icon); width: calc(var(--dg-i, 16) * var(--dg-u)); height: calc(var(--dg-i, 16) * var(--dg-u)); }
 .dg-spinner { animation: dg-spin 0.8s linear infinite; color: inherit; }
 
+/* ---------------------------------------------------------------- App logo */
+/* the tile and the node outlines share one theme colour, so the mark follows the theme */
+.dg-applogo { display: block; flex: none; }
+.dg-applogo-tile { fill: var(--dg-island-bg); }
+.dg-applogo-ring { stroke: var(--dg-island-bg); }
+
 /* ---------------------------------------------------------------- Button */
 .dg-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
