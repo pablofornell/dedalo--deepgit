@@ -1,13 +1,15 @@
 /** Sidebar island (DESIGN.md 5.3): project header and card, repository tree with branches, tags, stashes and submodules. */
 import { type JSX, Show, createEffect, createMemo, createSignal, on, untrack } from "solid-js";
 import {
-  AheadBehind, EmptyState, Icon, IconButton, RepoIcon, Tree, createExpanded, initials, openContextMenu, openMenu, plural,
+  AheadBehind, EmptyState, Icon, IconButton, RepoIcon, SearchField, Tree, createExpanded, initials, openContextMenu, openMenu, plural, tip,
   type IconName, type MenuItem, type TreeRowInfo,
 } from "../../components/ui";
 import * as actions from "../../state/actions";
 import { formatDate, fullDate } from "../../state/dates";
+import { shortcutLabel } from "../../state/keymap";
 import { setSidebarVisible } from "../../state/layout";
 import { loadPersisted, savePersisted } from "../../state/persist";
+import { consumeProjectFilterFocus, projectFilter, projectFilterFocusRequested, setProjectFilter } from "../../state/projectFilter";
 import { repoRefs } from "../../state/refs";
 import { changesRepoForNode } from "../../state/changesScope";
 import { selectFile, selectedFile, setChangesRepoId, jumpToCommit, setDetailsTab, setSelectedCommit } from "../../state/selection";
@@ -20,6 +22,7 @@ import { allHidden, toggleFolder, showOnly } from "./folders";
 import { nodeMenu } from "./menus";
 import { ProjectNameEditor } from "./ProjectNameEditor";
 import { renamingAfterSwitch } from "./rename";
+import { filterRepoTree, findMatch, normalizeQuery } from "./repoFilter";
 import { ancestorIds, buildTree, expandableIds, filterTree, folderIds, ids, repoDot, stateLabel, worstDot, type SidebarNode } from "./nodes";
 import { cssPx } from "../../state/metrics";
 import "./sidebar.css";
@@ -27,8 +30,8 @@ import "./sidebar.css";
 
 function Hl(props: { text: string; query: string }): JSX.Element {
   const parts = () => {
-    const i = props.query ? props.text.toLowerCase().indexOf(props.query) : -1;
-    return i < 0 ? null : ([props.text.slice(0, i), props.text.slice(i, i + props.query.length), props.text.slice(i + props.query.length)] as const);
+    const m = findMatch(props.text, props.query);
+    return m ? ([props.text.slice(0, m.start), props.text.slice(m.start, m.end), props.text.slice(m.end)] as const) : null;
   };
   return (
     <Show when={parts()} fallback={props.text}>
@@ -90,6 +93,13 @@ export function Sidebar(): JSX.Element {
 
   const single = () => projectRepos().length === 1;
   const q = () => query().trim().toLowerCase();
+  /** The filter field: matches repos and folders by name (`repoFilter.ts`). "" = off; with one repo there is no field. */
+  const fq = () => (single() ? "" : normalizeQuery(projectFilter()));
+  /** Text to highlight in a repo or folder name: the filter's, else the speed search's. */
+  const hl = () => fq() || q();
+  let root: HTMLDivElement | undefined;
+  const [field, setField] = createSignal<HTMLInputElement>();
+  const focusTree = () => root?.querySelector<HTMLElement>('[role="tree"]')?.focus();
 
   // Start with the focused repo open (Local and origin expanded), whenever the project changes.
   createEffect(
@@ -109,6 +119,7 @@ export function Sidebar(): JSX.Element {
         const projectId = activeProject()?.id ?? null;
         setCollapsedState({ projectId, ids: new Set(loadPersisted<string[]>(collapsedKey(projectId), [])) });
         setQuery("");
+        setProjectFilter("");
         setSelected(target ? (repos.length > 1 ? ids.repo(target.id) : null) : null);
         if (target && repos.length > 1) reveal(target.id);
       },
@@ -136,7 +147,21 @@ export function Sidebar(): JSX.Element {
       query: q(),
     }),
   );
-  const roots = createMemo(() => (q() ? filterTree(rawTree(), q()) : rawTree()));
+  const repoFiltered = createMemo(() => (fq() ? filterRepoTree(rawTree(), fq(), (id) => repoById(id)?.path) : rawTree()));
+  const roots = createMemo(() => (q() ? filterTree(repoFiltered(), q()) : repoFiltered()));
+  /** While the filter is on, a repo that holds matching nested repos is open, for the session only (not saved in `expanded`). */
+  const filterOpenRepos = createMemo(() => {
+    const out = new Set<string>();
+    if (!fq()) return out;
+    const walk = (list: readonly SidebarNode[]) => {
+      for (const n of list) {
+        if (n.kind === "repo" && n.children.some((c) => c.kind === "folder" || c.kind === "repo")) out.add(n.id);
+        if (n.children) walk(n.children);
+      }
+    };
+    walk(roots());
+    return out;
+  });
   const allFolderIds = createMemo(() => folderIds(rawTree()));
   // a folder that is gone (repo removed, folders merged or split) loses its saved collapsed state; only for the state of
   // the active project (the effect can run before the new project's ids are loaded)
@@ -150,7 +175,9 @@ export function Sidebar(): JSX.Element {
   const effectiveExpanded = createMemo(() => {
     if (q()) return expandableIds(roots());
     const open = new Set(expanded());
-    for (const id of allFolderIds()) if (!collapsed().has(id)) open.add(id);
+    // the filter opens every folder (and repo with matches) without touching the saved state
+    for (const id of allFolderIds()) if (fq() || !collapsed().has(id)) open.add(id);
+    for (const id of filterOpenRepos()) open.add(id);
     return open;
   });
 
@@ -166,13 +193,16 @@ export function Sidebar(): JSX.Element {
 
   const onExpandedChange = (next: Set<string>) => {
     if (q()) return;
-    // folder ids go to the collapsed set
     const all = allFolderIds();
-    const nextCollapsed = new Set([...collapsed()].filter((id) => all.includes(id)));
-    for (const id of all) if (!next.has(id)) nextCollapsed.add(id);
-    if (nextCollapsed.size !== collapsed().size || [...nextCollapsed].some((id) => !collapsed().has(id))) setCollapsed(nextCollapsed);
+    // folder ids go to the collapsed set (not while the filter holds every folder open)
+    if (!fq()) {
+      const nextCollapsed = new Set([...collapsed()].filter((id) => all.includes(id)));
+      for (const id of all) if (!next.has(id)) nextCollapsed.add(id);
+      if (nextCollapsed.size !== collapsed().size || [...nextCollapsed].some((id) => !collapsed().has(id))) setCollapsed(nextCollapsed);
+    }
     for (const id of all) next.delete(id);
     const cur = expanded();
+    for (const id of filterOpenRepos()) if (!cur.has(id)) next.delete(id);
     for (const id of [...next]) {
       // opening a repo also opens its Local and origin groups
       if (!cur.has(id) && id.startsWith("repo:")) {
@@ -221,7 +251,7 @@ export function Sidebar(): JSX.Element {
     }
     switch (n.kind) {
       case "folder":
-        if (!q()) setFoldersOpen([n.id], collapsed().has(n.id));
+        if (!q() && !fq()) setFoldersOpen([n.id], collapsed().has(n.id));
         break;
       case "repo":
         if (projectRepos().length > 1) selectOnlyRepo(n.repoId);
@@ -344,7 +374,7 @@ export function Sidebar(): JSX.Element {
             >
               <Icon name={info.expanded ? "folderOpen" : "folder"} size={14} class="dg-sidebar-icon" />
             </button>
-            <span class="dg-sidebar-fname" data-tip={n.path}><Hl text={n.label} query={q()} /></span>
+            <span class="dg-sidebar-fname" data-tip={n.path}><Hl text={n.label} query={hl()} /></span>
             <span class="dg-sidebar-count">{n.repoIds.length}</span>
             <span class="dg-grow" />
             <Show when={dot() !== "clean"}>
@@ -375,7 +405,7 @@ export function Sidebar(): JSX.Element {
             >
               <RepoIcon />
             </button>
-            <span class="dg-sidebar-name" data-tip={repo() ? `${repo()!.name}\n${repo()!.path}` : n.label}><Hl text={n.label} query={q()} /></span>
+            <span class="dg-sidebar-name" data-tip={repo() ? `${repo()!.name}\n${repo()!.path}` : n.label}><Hl text={n.label} query={hl()} /></span>
             <RepoBranch repoId={n.repoId} query={q()} />
             <AheadBehind ahead={s()?.ahead ?? 0} behind={s()?.behind ?? 0} upstream={s()?.upstream} />
             <span
@@ -453,8 +483,29 @@ export function Sidebar(): JSX.Element {
 
   const project = () => activeProject();
 
+  // `Ctrl+Alt+F` asks for the focus; the field may not exist yet (sidebar hidden), so the request waits for it.
+  createEffect(() => {
+    const el = field();
+    if (el?.isConnected && projectFilterFocusRequested()) {
+      el.focus();
+      el.select();
+      consumeProjectFilterFocus();
+    }
+  });
+  const onFilterKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      if (projectFilter()) setProjectFilter("");
+      else (e.currentTarget as HTMLElement).blur();
+    } else if ((e.key === "ArrowDown" || e.key === "Enter") && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      e.preventDefault();
+      focusTree();
+    }
+  };
+
   return (
-    <div class="dg-sidebar">
+    <div class="dg-sidebar" ref={root}>
       <div class="dg-sidebar-head">
         <span class="dg-sidebar-title">Project</span>
         <span class="dg-grow" />
@@ -514,6 +565,20 @@ export function Sidebar(): JSX.Element {
             </button>
           </Show>
         </div>
+        <div class="dg-sidebar-filter">
+          <SearchField
+            size="filter"
+            value={projectFilter()}
+            onInput={setProjectFilter}
+            onClear={() => field()?.focus()}
+            onKeyDown={onFilterKeyDown}
+            inputRef={setField}
+            placeholder="Filter projects"
+            shortcut={shortcutLabel("sidebar.filter")}
+            aria-label="Filter projects by name"
+            {...tip("Filter projects by name", shortcutLabel("sidebar.filter"))}
+          />
+        </div>
       </Show>
 
       <div class="dg-sidebar-body" onKeyDown={onKeyDown}>
@@ -548,6 +613,12 @@ export function Sidebar(): JSX.Element {
         />
         <Show when={projectRepos().length === 0}>
           <EmptyState icon="repo" title="No repositories">This project has no Git repositories. Rescan it from the menu above.</EmptyState>
+        </Show>
+        <Show when={fq() && !q() && roots().length === 0}>
+          <div class="dg-sidebar-nomatch" role="status">
+            No projects match “{projectFilter().trim()}”.{" "}
+            <button type="button" class="dg-sidebar-nomatch-clear" onClick={() => { setProjectFilter(""); field()?.focus(); }}>Clear filter</button>
+          </div>
         </Show>
         <Show when={q() && roots().length === 0 && projectRepos().length > 0}>
           <div class="dg-sidebar-nomatch">Nothing matches “{query()}”.</div>

@@ -27,6 +27,10 @@
 .dg-sidebar-hint { font-size: var(--dg-font-size-small); font-weight: var(--dg-weight-regular); color: var(--dg-text-secondary); }
 .dg-sidebar-hint:hover { color: var(--dg-text-link); }
 
+/* ---- project filter field (under the section label) */
+.dg-sidebar-filter { flex: none; padding: 0 var(--dg-space-4) var(--dg-space-3); }
+.dg-sidebar-filter .dg-field { width: 100%; }
+
 /* ---- tree */
 .dg-sidebar-body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .dg-sidebar-body > .dg-tree { padding-top: var(--dg-space-2); }
@@ -62,6 +66,8 @@
 .dg-sidebar-loading { color: var(--dg-text-secondary); font-size: var(--dg-font-size-medium); }
 .dg-sidebar-match { background: transparent; color: var(--dg-match-fg); font-weight: var(--dg-weight-semibold); }
 .dg-sidebar-nomatch { padding: var(--dg-space-5) var(--dg-space-6); color: var(--dg-text-secondary); font-size: var(--dg-font-size-medium); }
+.dg-sidebar-nomatch-clear { color: var(--dg-text-link); }
+.dg-sidebar-nomatch-clear:hover { text-decoration: underline; }
 
 /* ---- speed search */
 .dg-sidebar-speed {
