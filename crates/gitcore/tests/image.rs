@@ -156,3 +156,73 @@ fn bad_paths_and_names_are_refused() {
     assert!(image::file_images(&g, &r.info, &DiffSpec::Staged, "a.png", Some("../b.png")).is_err());
     assert!(image::file_images(&g, &r.info, &commit_spec("--output=x"), "a.png", None).is_err());
 }
+
+#[test]
+fn the_old_unstaged_side_of_a_conflicted_image_is_ours() {
+    use gitcore::{ops, MergeOpts};
+    let r = TestRepo::new();
+    let g = git();
+    put(&r, "c.png", &[1; 4]);
+    commit_all(&r, "base");
+    r.sh(&["checkout", "-qb", "feature"]);
+    put(&r, "c.png", &[3; 6]);
+    commit_all(&r, "theirs");
+    r.sh(&["checkout", "-q", "main"]);
+    put(&r, "c.png", &[2; 5]);
+    commit_all(&r, "ours");
+    let res = ops::merge(&g, &r.info, "feature", &MergeOpts::default()).unwrap();
+    assert!(res.conflicts, "{res:?}");
+    // The index has no stage 0 entry. The old side is stage 2 ("ours", 5 bytes), not empty.
+    let sides = image::file_images(&g, &r.info, &DiffSpec::Unstaged, "c.png", None).unwrap();
+    assert_eq!(sides.old.expect("old side").size, 5);
+    assert!(sides.new.is_some());
+}
+
+/// Replace the index entry of `d.png` with the given unmerged stages (`git update-index --index-info`).
+fn set_stages(r: &TestRepo, stages: &[(u8, &str)]) {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let mut text = format!("0 {}\td.png\n", "0".repeat(40));
+    for (n, id) in stages {
+        text.push_str(&format!("100644 {id} {n}\td.png\n"));
+    }
+    let mut child = Command::new("git")
+        .current_dir(r.path())
+        .args(["update-index", "--index-info"])
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(text.as_bytes())
+        .unwrap();
+    assert!(child.wait().unwrap().success());
+}
+
+#[test]
+fn the_old_unstaged_side_of_a_conflict_falls_back_to_theirs_then_head() {
+    let r = TestRepo::new();
+    let g = git();
+    put(&r, "d.png", &[1; 4]);
+    commit_all(&r, "base");
+    let base = r.sh(&["rev-parse", "HEAD:d.png"]);
+    put(&r, "theirs.tmp", &[3; 7]);
+    let theirs = r.sh(&["hash-object", "-w", "theirs.tmp"]);
+    let old_size = || {
+        image::file_images(&g, &r.info, &DiffSpec::Unstaged, "d.png", None)
+            .unwrap()
+            .old
+            .map(|s| s.size)
+    };
+    // Ours deleted the file: stages 1 and 3 only. The old side is theirs.
+    set_stages(&r, &[(1, &base), (3, &theirs)]);
+    assert_eq!(old_size(), Some(7));
+    // Both deleted it: stage 1 only. The old side is HEAD.
+    set_stages(&r, &[(1, &base)]);
+    assert_eq!(old_size(), Some(4));
+    // No entry at all and no conflict (git rm --cached): no old side, not HEAD.
+    r.sh(&["update-index", "--force-remove", "d.png"]);
+    assert_eq!(old_size(), None);
+}

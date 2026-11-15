@@ -162,6 +162,19 @@ const createDir = (repoId: string, path: string) => call<void>("create_dir", { r
 const listed = async (repoId: string) => (await call<FileList>("list_files", { repoId })).files;
 const untracked = async (repoId: string) => (await call<WorkingTree>("working_tree", { repoId })).unstaged.filter((f) => f.status === "untracked").map((f) => f.path);
 
+const existingDirs = (repoId: string, paths: string[]) => call<string[]>("existing_dirs", { repoId, paths });
+
+describe("mock files: existing_dirs", () => {
+  it("keeps the folders that exist, empty ones included, and refuses bad paths", async () => {
+    const refunds = await repoNamed("refunds-worker");
+    await createDir(refunds, "made/inner");
+    await write(refunds, "afile.txt", "x");
+    expect(await existingDirs(refunds, ["made/", "made/inner/", "made/none/", "afile.txt", "afile.txt/", "src/"])).toEqual(["made/", "made/inner/", "src/"]);
+    expect(await rejected(existingDirs(refunds, ["../x/"]))).toEqual({ message: "path outside the repo: ../x" });
+    expect(await rejected(existingDirs(refunds, [".git/"]))).toEqual({ message: "path inside the git folder: .git" });
+  });
+});
+
 describe("mock files: create", () => {
   it("makes an empty file with its parent folders, listed and untracked", async () => {
     const refunds = await repoNamed("refunds-worker");
@@ -220,6 +233,19 @@ describe("mock files: create", () => {
       for (const name of ["dir/", "a\\b", "nul\0name"]) expect(await rejected(make(refunds, name))).toEqual({ message: `not a valid name: ${name}` });
     }
     expect(await listed(refunds)).not.toContain("x");
+  });
+
+  it("refuses names that Windows reads as .git, stream names and parts that end with a dot or a space", async () => {
+    const refunds = await repoNamed("refunds-worker");
+    for (const make of [createFile, createDir]) {
+      for (const name of [".git.", ".git ", ".GIT. .", "a/.Git../x", "git~1", "GIT~1/x", "a/git~2"]) {
+        expect(await rejected(make(refunds, name))).toEqual({ message: `path inside the git folder: ${name}` });
+      }
+      for (const name of ["ab:c", "file::$DATA", "dir/a:b", "x./y", "x /y", "end.", "end "]) {
+        expect(await rejected(make(refunds, name))).toEqual({ message: `not a valid name: ${name}` });
+      }
+    }
+    expect(await listed(refunds)).not.toContain("end.");
   });
 
   it("emits repo-changed, so the tree refreshes", async () => {

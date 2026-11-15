@@ -156,6 +156,8 @@ export const writeTextFile = (repoId: string, path: string, content: string, exp
 export const createFile = (repoId: string, path: string) => invoke<void>("create_file", { repoId, path });
 /** Creates an empty folder at `path` and the folders above it. The same rejections as `createFile`. Git does not list an empty folder. */
 export const createDir = (repoId: string, path: string) => invoke<void>("create_dir", { repoId, path });
+/** Returns the paths (each may end with "/") that are folders on the disk now. Empty folders count. Rejects a path outside the repo or in `.git`. */
+export const existingDirs = (repoId: string, paths: string[]) => invoke<string[]>("existing_dirs", { repoId, paths });
 /**
  * Adds pattern lines at the end of `.gitignore` or `.git/info/exclude` (creates the file). A line that the file holds
  * already is skipped. Returns the lines that were added. Does not stage and does not commit.

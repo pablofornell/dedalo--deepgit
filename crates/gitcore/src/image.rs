@@ -74,15 +74,47 @@ fn check_plain(path: &str) -> Result<(), GitError> {
     Ok(())
 }
 
-/// The blob `object` names (`<rev>:<path>` or `:0:<path>` for the index). `None` when it does not exist.
+/// The object id that `object` names (`<rev>:<path>` or `:<stage>:<path>` for the index). `None`
+/// when it does not exist. Read the size and the bytes by this id: a name can point to another
+/// blob a moment later, an id cannot.
+fn resolve_object(git: &Git, repo: &RepoInfo, object: &str) -> Result<Option<String>, GitError> {
+    let out = git.run_unchecked(
+        Path::new(&repo.path),
+        Some(&repo.id),
+        &["rev-parse", "--verify", "--quiet", object],
+        false,
+        None,
+    )?;
+    let id = out.stdout.trim();
+    if out.code != 0 || id.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(id.to_string()))
+}
+
+/// The blob `object` names (see [`resolve_object`]). `None` when it does not exist. The name is
+/// resolved once, and the size check and the read both use that id, so the cap holds.
 fn read_object(
     git: &Git,
     repo: &RepoInfo,
     object: &str,
     path: &str,
 ) -> Result<Option<ImageSide>, GitError> {
+    match resolve_object(git, repo, object)? {
+        Some(id) => read_blob(git, repo, &id, path),
+        None => Ok(None),
+    }
+}
+
+/// The blob with the object id `id`. `None` when it is not there or is not a blob.
+fn read_blob(
+    git: &Git,
+    repo: &RepoInfo,
+    id: &str,
+    path: &str,
+) -> Result<Option<ImageSide>, GitError> {
     let rp = Path::new(&repo.path);
-    let size = git.run_unchecked(rp, Some(&repo.id), &["cat-file", "-s", object], false, None)?;
+    let size = git.run_unchecked(rp, Some(&repo.id), &["cat-file", "-s", id], false, None)?;
     if size.code != 0 {
         return Ok(None);
     }
@@ -92,17 +124,30 @@ fn read_object(
     if size > MAX_IMAGE_BYTES {
         return Ok(Some(side(path, size, None)));
     }
-    let out = git.run_unchecked_raw(
-        rp,
-        Some(&repo.id),
-        &["cat-file", "blob", object],
-        false,
-        None,
-    )?;
+    let out = git.run_unchecked_raw(rp, Some(&repo.id), &["cat-file", "blob", id], false, None)?;
     if out.code != 0 {
         return Ok(None);
     }
     Ok(Some(side(path, out.stdout.len() as u64, Some(out.stdout))))
+}
+
+/// The old side of the unstaged diff: the index entry of `path`. A conflicted path has no entry
+/// at stage 0, so the old side is "ours" (stage 2), else "theirs" (stage 3), else HEAD (both
+/// sides deleted it). A path with no entry and no conflict has no old side.
+fn read_index_side(git: &Git, repo: &RepoInfo, path: &str) -> Result<Option<ImageSide>, GitError> {
+    if let Some(id) = resolve_object(git, repo, &format!(":0:{path}"))? {
+        return read_blob(git, repo, &id, path);
+    }
+    for stage in [2, 3] {
+        if let Some(id) = resolve_object(git, repo, &format!(":{stage}:{path}"))? {
+            return read_blob(git, repo, &id, path);
+        }
+    }
+    // Stage 1 only: both sides deleted the file. Only a conflicted path gets the HEAD fallback.
+    if resolve_object(git, repo, &format!(":1:{path}"))?.is_some() {
+        return read_object(git, repo, &format!("HEAD:{path}"), path);
+    }
+    Ok(None)
 }
 
 /// The regular file `path` of the worktree. `None` when missing, a symlink or not a file.
@@ -160,7 +205,7 @@ pub fn file_images(
             new: read_object(git, repo, &format!(":0:{path}"), path)?,
         }),
         DiffSpec::Unstaged => Ok(FileImages {
-            old: read_object(git, repo, &format!(":0:{path}"), path)?,
+            old: read_index_side(git, repo, path)?,
             new: read_worktree(repo, path)?,
         }),
     }

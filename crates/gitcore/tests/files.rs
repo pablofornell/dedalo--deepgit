@@ -357,6 +357,71 @@ fn create_refuses_paths_outside_the_repo_and_the_git_folder() {
 }
 
 #[test]
+fn existing_dirs_keeps_the_folders_that_are_on_the_disk() {
+    let repo = TestRepo::new();
+    let g = git();
+    files::create_dir(&g, &repo.info, "a/b").expect("create");
+    repo.commit_file("f.txt", "x\n", "f");
+    let ask = |names: &[&str]| {
+        let paths: Vec<String> = names.iter().map(|s| s.to_string()).collect();
+        files::existing_dirs(&g, &repo.info, &paths).expect("check")
+    };
+    // Paths with and without a trailing slash. A file and a missing name are not folders.
+    assert_eq!(
+        ask(&["a/", "a/b/", "a/c/", "f.txt/", "f.txt", "gone"]),
+        vec!["a/", "a/b/"]
+    );
+    std::fs::remove_dir(repo.path().join("a/b")).unwrap();
+    assert_eq!(ask(&["a/", "a/b/"]), vec!["a/"]);
+    // The paths are checked like any other path.
+    let bad = vec!["../x/".to_string()];
+    assert!(files::existing_dirs(&g, &repo.info, &bad).is_err());
+    let bad = vec![".git/".to_string()];
+    assert!(files::existing_dirs(&g, &repo.info, &bad).is_err());
+}
+
+#[test]
+fn create_refuses_names_that_windows_reads_as_the_git_folder() {
+    let repo = TestRepo::new();
+    let g = git();
+    for make in [files::create_file, files::create_dir] {
+        for name in [
+            ".git.",
+            ".git ",
+            ".GIT. .",
+            "a/.Git../x",
+            "git~1",
+            "GIT~1/x",
+            "a/git~2",
+        ] {
+            assert_eq!(
+                invalid(make(&g, &repo.info, name).unwrap_err()),
+                format!("path inside the git folder: {name}")
+            );
+        }
+        for name in [
+            "ab:c",
+            "file::$DATA",
+            "dir/a:b",
+            "x./y",
+            "x /y",
+            "end.",
+            "end ",
+        ] {
+            assert_eq!(
+                invalid(make(&g, &repo.info, name).unwrap_err()),
+                format!("not a valid name: {name}")
+            );
+        }
+    }
+    // Nothing was made, not even the folders above a refused name.
+    assert!(!repo.path().join("a").exists());
+    assert!(!repo.path().join("x.").exists());
+    // A dot or a space inside a part is fine.
+    files::create_file(&g, &repo.info, "a.b c.txt").expect("create");
+}
+
+#[test]
 fn create_refuses_a_trailing_separator_a_backslash_and_a_nul() {
     let repo = TestRepo::new();
     let g = git();

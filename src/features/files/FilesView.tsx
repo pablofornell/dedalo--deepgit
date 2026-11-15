@@ -33,7 +33,7 @@ import { ProjectSearch, type SearchApi, type SearchOpen } from "./ProjectSearch"
 import { QuickOpen, type QuickFile } from "./QuickOpen";
 import { newEntryMenuItems, openTreeMenu, type NewEntry } from "./treeMenu";
 import {
-  SEP, buildTree, checkNewName, closeTab, dirNodeStatus, draftNode, emptyFolders, errorText, fileNodeStatus, folderChain, folderStatuses, isStaleVersion, knownEntries,
+  SEP, buildTree, checkNewName, closeTab, dirNodeStatus, draftNode, emptyFolders, errorText, fileNodeStatus, folderChain, folderStatuses, goneFolders, isStaleVersion, knownEntries,
   matchRange, newEntryDir, openTab, repoNode, revealIds, scopeId, statusMap, tabLabels, tabsToClose, withDraft, type CloseAction, type DraftNode, type TreeNode,
 } from "./model";
 import "./files.css";
@@ -480,7 +480,9 @@ export function FilesView(): JSX.Element {
     const before = untrack(lists);
     const keep = new Set(statusOnly ? ownSaved : []);
     ownSaved.clear();
-    const [ls, sts] = await Promise.all([
+    // Only the new folders that exist now are checked. One that is made while this refresh runs is not in this set, so it stays.
+    const madeDirs = untrack(newDirs);
+    const [ls, sts, onDisk] = await Promise.all([
       Promise.all(
         repos.map(async (r) => {
           const old = before.get(r.id);
@@ -488,13 +490,12 @@ export function FilesView(): JSX.Element {
         }),
       ),
       Promise.all(repos.map(async (r) => [r.id, await statusOne(r.id)] as const)),
+      Promise.all([...madeDirs].map(async ([id, dirs]) => [id, await dirsOnDisk(id, dirs)] as const)),
     ]);
     if (my !== token) return;
     const changed = before.size !== ls.length || ls.some(([id, d]) => !sameList(before.get(id), d));
-    if (changed) {
-      setLists(new Map(ls));
-      dropFilledDirs(ls);
-    }
+    if (changed) setLists(new Map(ls));
+    dropDeadDirs(ls, madeDirs, new Map(onDisk));
     setStatuses(new Map(sts));
     setLoaded(true);
     // A project with several repos opens with its repos expanded. This happens once for each set of repos.
@@ -662,17 +663,41 @@ export function FilesView(): JSX.Element {
   /** True while the backend creates the entry. The field ignores keys and a lost focus then. */
   let creating = false;
 
-  /** Forgets the new folders of a repo that now hold a file: git lists them from then on. */
-  const dropFilledDirs = (ls: readonly (readonly [string, RepoData])[]): void => {
+  /** The folders of `dirs` that are on the disk. When the check fails, they all count as there, so nothing is dropped. */
+  const dirsOnDisk = async (repoId: string, dirs: ReadonlySet<string>): Promise<Set<string>> => {
+    try {
+      return new Set(await api.existingDirs(repoId, [...dirs]));
+    } catch {
+      return new Set(dirs);
+    }
+  };
+
+  /**
+   * Forgets the new folders of a repo that now hold a file (git lists them from then on) and the ones that are gone from the
+   * disk with nothing inside. `checked` is the set of new folders that `onDisk` was asked about. A folder that is not in it
+   * was made after the check began, so it stays.
+   */
+  const dropDeadDirs = (
+    ls: readonly (readonly [string, RepoData])[],
+    checked: ReadonlyMap<string, ReadonlySet<string>>,
+    onDisk: ReadonlyMap<string, ReadonlySet<string>>,
+  ): void => {
     const now = untrack(newDirs);
     if (now.size === 0) return;
     const next = new Map<string, Set<string>>();
+    let changed = false;
     for (const [repoId, dirs] of now) {
       const data = ls.find(([id]) => id === repoId)?.[1];
-      const kept = data && !data.error ? emptyFolders(dirs, data.files) : dirs;
+      let kept = dirs;
+      if (data && !data.error) {
+        const asked = checked.get(repoId) ?? new Set<string>();
+        const gone = goneFolders(asked, onDisk.get(repoId) ?? asked, [...data.files, ...data.ignored]);
+        kept = emptyFolders(dirs, data.files, gone);
+      }
+      if (kept.size !== dirs.size) changed = true;
       if (kept.size > 0) next.set(repoId, kept);
     }
-    setNewDirs(next);
+    if (changed) setNewDirs(next);
   };
 
   const endDraft = (): void => {
@@ -711,11 +736,13 @@ export function FilesView(): JSX.Element {
     const path = checked.path;
     creating = true;
     el.readOnly = true;
+    let refused = false;
     try {
       try {
         await (d.isDir ? api.createDir(d.repoId, path) : api.createFile(d.repoId, path));
       } catch (e) {
         setDraftError(errorText(e));
+        refused = true;
         return;
       }
       if (d.isDir) {
@@ -731,6 +758,8 @@ export function FilesView(): JSX.Element {
     } finally {
       creating = false;
       el.readOnly = false;
+      // A lost focus was ignored while the backend worked. The draft stays open, so the field takes the focus back to show the error.
+      if (refused && draftEl === el) el.focus({ preventScroll: true });
     }
     endDraft();
     revealNew(d.repoId, path, d.isDir);

@@ -448,6 +448,15 @@ pub async fn create_dir(app: AppHandle, state: St<'_>, repo_id: String, path: St
     .await
 }
 
+/// JS: `{ repoId, paths }`. Returns the paths that are folders on the disk now.
+#[tauri::command]
+pub async fn existing_dirs(state: St<'_>, repo_id: String, paths: Vec<String>) -> Res<Vec<String>> {
+    read(&state, &repo_id, move |g, r| {
+        gitfiles::existing_dirs(g, r, &paths)
+    })
+    .await
+}
+
 /// JS: `{ repoId, target: "gitignore" | "exclude", patterns }`. Returns the lines added.
 #[tauri::command]
 pub async fn append_ignore_rules(

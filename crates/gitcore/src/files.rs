@@ -217,7 +217,9 @@ fn changed_on_disk() -> GitError {
 
 /// Create a new empty file in the worktree. Make the missing folders above it. Refuse a name that
 /// exists (a file, a folder or a symlink), a path outside the repo, a path into the git folder, and
-/// a name that ends with a separator or holds a backslash.
+/// a name that ends with a separator or holds a backslash. The git folder rule also covers the
+/// names that Windows reads as `.git` (`.git.`, `.git `, `git~1`), and a name with `:` or a part
+/// that ends with a dot or a space is refused.
 pub fn create_file(_git: &Git, repo: &RepoInfo, path: &str) -> Result<(), GitError> {
     let full = new_entry_path(repo, path)?;
     make_parents(repo, &full, path)?;
@@ -244,6 +246,26 @@ pub fn create_dir(_git: &Git, repo: &RepoInfo, path: &str) -> Result<(), GitErro
     }
 }
 
+/// The paths of `paths` that are real folders in the worktree now (a symlink is not one). A path
+/// may end with "/". The answer keeps the paths as they were given. A path outside the repo or in
+/// the git folder is refused. The tree uses this to forget a new folder that is gone from the disk.
+pub fn existing_dirs(
+    _git: &Git,
+    repo: &RepoInfo,
+    paths: &[String],
+) -> Result<Vec<String>, GitError> {
+    let mut out = Vec::new();
+    for path in paths {
+        let trimmed = path.trim_end_matches('/');
+        check_path(trimmed)?;
+        let full = worktree_path(repo, trimmed)?;
+        if std::fs::symlink_metadata(&full).is_ok_and(|m| m.is_dir()) {
+            out.push(path.clone());
+        }
+    }
+    Ok(out)
+}
+
 fn already_exists(path: &str) -> GitError {
     GitError::Invalid(format!("{path} already exists."))
 }
@@ -255,6 +277,7 @@ fn new_entry_path(repo: &RepoInfo, path: &str) -> Result<PathBuf, GitError> {
     if path.ends_with('/') || path.contains(['\\', '\0']) {
         return Err(GitError::Invalid(format!("not a valid name: {path}")));
     }
+    check_new_parts(path)?;
     let full = worktree_path(repo, path)?;
     match std::fs::symlink_metadata(&full) {
         Ok(_) => Err(already_exists(path)),
@@ -262,6 +285,36 @@ fn new_entry_path(repo: &RepoInfo, path: &str) -> Result<PathBuf, GitError> {
         Err(e) if matches!(e.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) => Ok(full),
         Err(e) => Err(e.into()),
     }
+}
+
+/// Refuse a new name that Windows would turn into the git folder or into something else: a part
+/// that is `.git` once the dots and spaces at its end are cut, a part that starts with `git~` (a
+/// short name of `.git`), a part with `:` (a stream name) and a part that ends with a dot or a
+/// space. The checks are the same on every system, so a repo works on all of them.
+fn check_new_parts(path: &str) -> Result<(), GitError> {
+    let parts: Vec<String> = Path::new(path)
+        .components()
+        .filter_map(|c| match c {
+            Component::Normal(n) => Some(n.to_string_lossy().into_owned()),
+            _ => None,
+        })
+        .collect();
+    let git_folder = |p: &String| {
+        let lower = p.trim_end_matches(['.', ' ']).to_ascii_lowercase();
+        lower == ".git" || lower.starts_with("git~")
+    };
+    if parts.iter().any(git_folder) {
+        return Err(GitError::Invalid(format!(
+            "path inside the git folder: {path}"
+        )));
+    }
+    if parts
+        .iter()
+        .any(|p| p.contains(':') || p.ends_with(['.', ' ']))
+    {
+        return Err(GitError::Invalid(format!("not a valid name: {path}")));
+    }
+    Ok(())
 }
 
 /// Make the folders above `full`. Refuse a path that goes through a file or a symlink to a file.

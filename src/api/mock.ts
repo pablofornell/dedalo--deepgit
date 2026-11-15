@@ -980,6 +980,16 @@ const handlers: Record<string, Handler> = {
     for (const dir of folderChain(path)) empty.add(dir);
     emitChanged(repo);
   },
+  existing_dirs: (a) => {
+    const repo = repoOf(a.repoId);
+    const empty = emptyDirsOf(repo);
+    return stringList(a, "paths", "existing_dirs").filter((path) => {
+      const refused = filePathError(path.replace(/\/+$/, ""));
+      if (refused !== null) fail(refused);
+      const key = fileKey(path);
+      return key === "" || empty.has(key) || isFolder(repo.worktree, key);
+    });
+  },
   append_ignore_rules: (a, c) => {
     const repo = repoOf(a.repoId);
     const target = ignoreTargetArg(a, "append_ignore_rules");

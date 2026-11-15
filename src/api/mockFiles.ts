@@ -208,6 +208,13 @@ export function createEntryError(files: Map<string, string>, emptyDirs: Readonly
   if (refused !== null) return refused;
   if (path.endsWith("/") || path.includes("\\") || path.includes("\0")) return `not a valid name: ${path}`;
   const parts = fileKey(path).split("/");
+  // Names that Windows reads as `.git` (`.git.`, `git~1`), a stream name (`:`) and a part that ends with a dot or a space.
+  const gitLike = (p: string): boolean => {
+    const lower = p.replace(/[. ]+$/, "").toLowerCase();
+    return lower === ".git" || lower.startsWith("git~");
+  };
+  if (parts.some(gitLike)) return `path inside the git folder: ${path}`;
+  if (parts.some((p) => p.includes(":") || /[. ]$/.test(p))) return `not a valid name: ${path}`;
   for (let i = 1; i < parts.length; i++) {
     const above = parts.slice(0, i).join("/");
     if (files.has(above)) return `${above} is a file, so ${path} cannot go inside it.`;

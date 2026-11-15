@@ -182,10 +182,23 @@ export function knownEntries(paths: readonly string[]): KnownEntries {
   return { files, dirs };
 }
 
-/** Returns the folders of `dirs` (paths that end with "/") that hold no file of `paths`. Once a folder has content, git lists it. */
-export function emptyFolders(dirs: ReadonlySet<string>, paths: readonly string[]): Set<string> {
+/**
+ * Returns the folders of `dirs` (paths that end with "/") that hold no file of `paths`. Once a folder has content, git lists it.
+ * A folder in `gone` is left out too (see `goneFolders`).
+ */
+export function emptyFolders(dirs: ReadonlySet<string>, paths: readonly string[], gone: ReadonlySet<string> = new Set()): Set<string> {
   const out = new Set<string>();
-  for (const dir of dirs) if (!paths.some((p) => p.length > dir.length && p.startsWith(dir))) out.add(dir);
+  for (const dir of dirs) if (!gone.has(dir) && !paths.some((p) => p.length > dir.length && p.startsWith(dir))) out.add(dir);
+  return out;
+}
+
+/**
+ * Returns the folders of `dirs` that are not on the disk (`onDisk` holds the ones that are) and have no entry of `paths` inside.
+ * Such a folder was made here and then removed by something else, so the tree must stop showing it.
+ */
+export function goneFolders(dirs: ReadonlySet<string>, onDisk: ReadonlySet<string>, paths: readonly string[]): Set<string> {
+  const out = new Set<string>();
+  for (const dir of dirs) if (!onDisk.has(dir) && !paths.some((p) => p.length > dir.length && p.startsWith(dir))) out.add(dir);
   return out;
 }
 
@@ -195,6 +208,12 @@ export function folderChain(path: string): string[] {
   for (let i = path.indexOf("/"); i >= 0; i = path.indexOf("/", i + 1)) out.push(path.slice(0, i + 1));
   return out;
 }
+
+/** True for a name that is the git folder, or that Windows reads as it: `.git` with dots or spaces at the end, or `git~1`. */
+const gitLike = (part: string): boolean => {
+  const lower = part.replace(/[. ]+$/, "").toLowerCase();
+  return lower === ".git" || lower.startsWith("git~");
+};
 
 const NEW_NAME_CONTROL = /[\u0000-\u001f\u007f]/;
 
@@ -214,7 +233,9 @@ export function checkNewName(raw: string, dir: string, isDir: boolean, known: Kn
   if (parts.some((p) => p.trim() === "")) return { error: "A name cannot start or end with / or have an empty part." };
   const dots = parts.find((p) => p === "." || p === "..");
   if (dots !== undefined) return { error: `"${dots}" is not allowed in a name.` };
-  if (`${dir}${name}`.split("/").some((p) => p.toLowerCase() === ".git")) return { error: "A new entry cannot go inside .git." };
+  if (`${dir}${name}`.split("/").some(gitLike)) return { error: "A new entry cannot go inside .git." };
+  if (parts.some((p) => p.includes(":"))) return { error: 'A name cannot contain ":".' };
+  if (parts.some((p) => /[. ]$/.test(p))) return { error: "A part of a name cannot end with a dot or a space." };
   const path = dir + name;
   for (let i = 1; i < parts.length; i++) {
     const above = dir + parts.slice(0, i).join("/");

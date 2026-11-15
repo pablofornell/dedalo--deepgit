@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { FileChange, WorkingTree } from "../../api/types";
 import {
   SEP, buildTree, checkNewName, closeTab, columnOffset, dirNodeStatus, draftNode, emptyFolders, errorText, fileNodeStatus, folderChain, folderStatus, folderStatuses,
-  groupHits, isStaleVersion, knownEntries, lineSeparatorOf, matchRange, newEntryDir, openTab, rankFiles, repoNode, revealIds, scopeId, statusMap, tabLabels, tabsToClose,
+  goneFolders, groupHits, isStaleVersion, knownEntries, lineSeparatorOf, matchRange, newEntryDir, openTab, rankFiles, repoNode, revealIds, scopeId, statusMap, tabLabels, tabsToClose,
   withDraft, type DirNode, type RepoNode, type TreeNode,
 } from "./model";
 
@@ -442,6 +442,20 @@ describe("new file or folder: the name", () => {
     expect(path(".github/workflows/ci.yml")).toEqual({ path: ".github/workflows/ci.yml" });
   });
 
+  it("refuses names that Windows reads as .git, stream names and parts that end with a dot or a space", () => {
+    for (const name of [".git.", ".git ", ".GIT. .", "a/.Git../x", "git~1", "GIT~1/x", "a/git~2"]) {
+      expect(path(name)).toEqual({ error: "A new entry cannot go inside .git." });
+    }
+    expect(path("a:b")).toEqual({ error: 'A name cannot contain ":".' });
+    expect(path("a::$DATA")).toEqual({ error: 'A name cannot contain ":".' });
+    expect(path("x./y")).toEqual({ error: "A part of a name cannot end with a dot or a space." });
+    expect(path("x /y")).toEqual({ error: "A part of a name cannot end with a dot or a space." });
+    expect(path("end.")).toEqual({ error: "A part of a name cannot end with a dot or a space." });
+    // A dot or a space inside a part is fine, and so is a name that only holds "git".
+    expect(path("a.b c.txt")).toEqual({ path: "a.b c.txt" });
+    expect(path("gitignore~")).toEqual({ path: "gitignore~" });
+  });
+
   it("refuses a name that exists: a file, a folder, an ignored folder or an empty one", () => {
     expect(path("README.md")).toEqual({ error: '"README.md" already exists here.' });
     expect(path("main.rs", "src/")).toEqual({ error: '"main.rs" already exists here.' });
@@ -480,5 +494,16 @@ describe("new file or folder: the entries that exist", () => {
     expect([...emptyFolders(dirs, ["src/new/a.ts", "x.ts"])].sort()).toEqual(["docs/"]);
     expect([...emptyFolders(dirs, ["src/a.ts"])].sort()).toEqual(["docs/", "src/new/"]);
     expect(emptyFolders(new Set(), ["a"]).size).toBe(0);
+  });
+
+  it("drops a new folder that is gone from the disk and has nothing inside", () => {
+    const dirs = new Set(["docs/", "src/", "src/new/"]);
+    // docs/ and src/new/ are not on the disk any more. src/ is.
+    const gone = goneFolders(dirs, new Set(["src/"]), ["README.md"]);
+    expect([...gone].sort()).toEqual(["docs/", "src/new/"]);
+    expect([...emptyFolders(dirs, ["README.md"], gone)]).toEqual(["src/"]);
+    // A folder with an entry inside is not gone, even when the disk check missed it. An ignored folder entry counts too.
+    expect(goneFolders(dirs, new Set(), ["docs/a.md", "src/new/cache/"]).size).toBe(0);
+    expect(goneFolders(new Set(), new Set(), []).size).toBe(0);
   });
 });
