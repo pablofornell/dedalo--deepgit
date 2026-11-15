@@ -1,7 +1,7 @@
 /** Title bar (DESIGN.md 5.1): logo, project switcher, branch widget, fetch / pull / push, Search Everywhere, tools, window controls. */
 import { type JSX, Show, createMemo } from "solid-js";
 import {
-  Icon, Kbd, Spinner, WindowControls, dragRegion, markNotificationsRead, notifications, openMenu, plural, unreadCount,
+  AppLogo, Icon, Kbd, Spinner, WindowControls, dragRegion, markNotificationsRead, notifications, openMenu, plural, unreadCount,
   type IconName, type MenuItem, THEME_ICONS,
 } from "../../components/ui";
 import * as actions from "../../state/actions";
@@ -16,20 +16,6 @@ import { focusedRepo, projectRepos, projectTotals, summary } from "../../state/w
 import { BranchWidget } from "./BranchWidget";
 import { ProjectSwitcher } from "./ProjectSwitcher";
 import "./titlebar.css";
-
-const LOGO = (
-  <svg class="dg-titlebar-logo" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true">
-    <rect width="20" height="20" rx="5" fill="var(--dg-accent)" />
-    <path d="M10 16V4M10 10C8.4 10 4.5 9 4.5 6.6M10 10C11.6 10 15.5 9 15.5 6.6" stroke="var(--dg-text-over-accent)" stroke-width="1.8" fill="none" stroke-linecap="round" />
-    <g fill="var(--dg-text-over-accent)" stroke="var(--dg-accent)" stroke-width="0.8">
-      <circle cx="10" cy="16" r="2" />
-      <circle cx="10" cy="10" r="2" />
-      <circle cx="10" cy="4" r="2" />
-      <circle cx="4.5" cy="6.6" r="2" />
-      <circle cx="15.5" cy="6.6" r="2" />
-    </g>
-  </svg>
-);
 
 /** Repos with a count above 0, as tooltip lines ("api-gateway 3"). */
 function perRepoLines(pick: (repoId: string) => number, arrow: string): string[] {
@@ -102,7 +88,7 @@ export function TitleBar(): JSX.Element {
   return (
     <div class="dg-titlebar" {...dragRegion}>
       <div class="dg-titlebar-left" {...dragRegion}>
-        {LOGO}
+        <AppLogo size={20} small />
         <ProjectSwitcher />
         <BranchWidget />
         <span class="dg-titlebar-sep" />

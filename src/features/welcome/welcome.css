@@ -10,9 +10,6 @@
 .dg-welcome-inner { margin: auto; display: flex; flex-direction: column; align-items: center; gap: var(--dg-space-8); text-align: center; }
 
 .dg-welcome-hero { display: flex; flex-direction: column; align-items: center; gap: var(--dg-space-3); }
-.dg-welcome-logo { display: block; width: 48px; height: 48px; }
-.dg-welcome-logo-tile { fill: var(--dg-island-bg); }
-.dg-welcome-logo-ring { stroke: var(--dg-island-bg); }
 .dg-welcome-title { margin: var(--dg-space-4) 0 0; font-size: var(--dg-font-size-h1); line-height: calc(28 * var(--dg-u)); font-weight: var(--dg-weight-semibold); }
 .dg-welcome-tagline { margin: 0; color: var(--dg-text-muted); }
 

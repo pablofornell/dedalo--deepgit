@@ -8,6 +8,7 @@ import "./ui.css";
 export * from "./icons";
 export * from "./util";
 export { Icon, type IconProps } from "./Icon";
+export { AppLogo, type AppLogoProps } from "./AppLogo";
 export { Button, IconButton, type ButtonProps, type IconButtonProps } from "./Button";
 export { TextField, SearchField, type TextFieldProps, type SearchFieldProps } from "./TextField";
 export { Checkbox, type CheckboxProps } from "./Checkbox";
