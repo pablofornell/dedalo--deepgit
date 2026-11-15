@@ -151,6 +151,8 @@ export interface CloneDialogResult {
   path: string;
   projectId: string;
 }
+/** The About dialog shows facts of the build, so it has no props and no result. */
+export type AboutProps = Record<string, never>;
 export interface AuthProps {
   /** The question of a running fetch, pull or push (docs/PLAN.md section 5.6). `state/auth.ts` opens this dialog. */
   prompt: AuthPrompt;
@@ -212,6 +214,7 @@ export interface DialogRegistry {
   checkoutRemote: { props: CheckoutRemoteProps; result: CheckoutRemoteResult };
   settings: { props: SettingsProps; result: void };
   clone: { props: CloneProps; result: CloneDialogResult };
+  about: { props: AboutProps; result: void };
   auth: { props: AuthProps; result: AuthDialogResult };
   conflicts: { props: ConflictsProps; result: ConflictsResult };
   mergeFile: { props: MergeFileProps; result: MergeFileResult };

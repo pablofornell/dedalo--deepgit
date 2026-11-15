@@ -3,6 +3,7 @@
  * One file per dialog; the generic "confirm" lives in `components/ui` and registers itself.
  */
 import { registerDialog } from "../../state/dialogs";
+import { AboutDialog } from "./AboutDialog";
 import { AuthDialog } from "./AuthDialog";
 import { CheckoutRemoteDialog } from "./CheckoutRemoteDialog";
 import { CloneDialog } from "./CloneDialog";
@@ -33,4 +34,5 @@ export function registerAllDialogs(): void {
   registerDialog("renameProject", RenameProjectDialog);
   registerDialog("ignore", IgnoreDialog);
   registerDialog("initRepository", InitRepositoryDialog);
+  registerDialog("about", AboutDialog);
 }
