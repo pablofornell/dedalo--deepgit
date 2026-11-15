@@ -42,3 +42,10 @@
 
 ## 9. Smart .gitignore
 - [x] **Smart .gitignore:** Add ignore rules from the UI (right-click a file or folder → "Add to .gitignore", with pattern suggestions). Only edit `.gitignore`, no commit.
+
+## 10. Iteration 4
+- [ ] **In-app icon:** Replace the out-of-date in-app icon with the current app icon everywhere (title bar, about dialog, splash, empty states).
+- [ ] **Image/GIF viewer for changes:** Visual preview (before/after, side by side, swipe/onion-skin, animated GIFs) instead of a text diff for image files.
+- [ ] **Create files in the Files view:** Right-click → "New File" / "New Folder" with an inline name field.
+- [ ] **About dialog:** "About" item in the options dropdown: name, icon, version, build date, links.
+- [ ] **Project filter:** Filter field in the project list (case-insensitive, clear button, keyboard shortcut to focus).
