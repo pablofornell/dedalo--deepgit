@@ -127,3 +127,60 @@
 .dg-diff-rm-mod { background: var(--dg-diff-modified-marker); }
 .dg-diff-rm-del { background: var(--dg-diff-removed-marker); }
 .dg-diff-rm.is-focus { box-shadow: 0 0 0 1px var(--dg-text); }
+
+/* ---- image diff (ImageDiff.tsx) ---- */
+.dg-imgdiff { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+.dg-imgdiff-bar {
+  flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; padding: 4px 12px; min-height: var(--dg-control-height-small);
+  border-bottom: 1px solid var(--dg-island-header-border); font-size: var(--dg-font-size-medium);
+}
+.dg-imgdiff-grow { flex: 1; min-width: 0; }
+.dg-imgdiff-zoom { display: inline-flex; align-items: center; gap: 2px; flex: none; }
+.dg-imgdiff-zoom-label { min-width: calc(48 * var(--dg-u)); font-variant-numeric: tabular-nums; }
+.dg-imgdiff-onion { display: inline-flex; align-items: center; gap: 8px; color: var(--dg-text-muted); white-space: nowrap; }
+.dg-imgdiff-onion input[type="range"] { width: calc(140 * var(--dg-u)); accent-color: var(--dg-accent); }
+
+.dg-imgdiff-stage { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
+.dg-imgdiff-stage.is-sbs { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.dg-imgdiff-stage.is-sbs .dg-imgdiff-pane + .dg-imgdiff-pane { border-left: 1px solid var(--dg-island-header-border); }
+.dg-imgdiff-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.dg-imgdiff-cap {
+  flex: none; height: var(--dg-control-height-small); display: flex; align-items: center; gap: 6px; padding: 0 12px; min-width: 0;
+  font-size: var(--dg-font-size-small); color: var(--dg-text-muted); border-bottom: 1px solid var(--dg-island-header-border);
+}
+.dg-imgdiff-cap-label { color: var(--dg-text); font-weight: var(--dg-weight-medium); flex: none; }
+.dg-imgdiff-cap-source { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dg-imgdiff-cap-info { margin-left: auto; display: inline-flex; gap: 8px; white-space: nowrap; flex: none; font-variant-numeric: tabular-nums; }
+.dg-imgdiff-delta { color: var(--dg-text-secondary); }
+
+/* `margin: auto` on the child centres it and still lets a bigger picture scroll to its start. */
+.dg-imgdiff-view { flex: 1; min-height: 0; overflow: auto; display: flex; padding: var(--dg-space-5); outline: 0; }
+.dg-imgdiff-view > * { margin: auto; flex: none; }
+.dg-imgdiff-view:focus-visible { box-shadow: inset 0 0 0 var(--dg-focus-width) var(--dg-focus-ring); }
+.dg-imgdiff-note { color: var(--dg-text-muted); font-size: var(--dg-font-size-medium); text-align: center; }
+
+.dg-imgdiff-checker {
+  background: var(--dg-image-checker-a) repeating-conic-gradient(var(--dg-image-checker-b) 0 25%, transparent 0 50%) 50% 0 / calc(var(--dg-image-checker-size) * 2) calc(var(--dg-image-checker-size) * 2);
+}
+.dg-imgdiff-canvas { position: relative; box-shadow: 0 0 0 1px var(--dg-island-header-border); }
+.dg-imgdiff-img { display: block; max-width: none; user-select: none; -webkit-user-drag: none; }
+
+.dg-imgdiff-box { position: relative; box-shadow: 0 0 0 1px var(--dg-island-header-border); touch-action: none; }
+.dg-imgdiff-box.is-swipe { cursor: ew-resize; }
+.dg-imgdiff-layer { position: absolute; inset: 0; }
+.dg-imgdiff-img-center { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+.dg-imgdiff-divider {
+  position: absolute; top: 0; bottom: 0; width: var(--dg-focus-width); transform: translateX(-50%); background: var(--dg-accent); outline: 0;
+}
+.dg-imgdiff-grip {
+  position: absolute; left: 50%; top: 50%; width: var(--dg-image-grip-size); height: var(--dg-image-grip-size); transform: translate(-50%, -50%);
+  border-radius: 50%; background: var(--dg-accent); box-shadow: 0 0 0 var(--dg-focus-width) var(--dg-island-bg);
+}
+.dg-imgdiff-divider:focus-visible .dg-imgdiff-grip { box-shadow: 0 0 0 var(--dg-focus-width) var(--dg-island-bg), 0 0 0 calc(var(--dg-focus-width) * 2) var(--dg-accent); }
+
+.dg-imgdiff-info {
+  flex: none; display: flex; flex-wrap: wrap; gap: 4px 24px; padding: 4px 12px; border-top: 1px solid var(--dg-island-header-border);
+  font-size: var(--dg-font-size-small); color: var(--dg-text-muted);
+}
+.dg-imgdiff-info-side { display: inline-flex; gap: 8px; align-items: baseline; font-variant-numeric: tabular-nums; }
+.dg-imgdiff-info-side b { color: var(--dg-text); font-weight: var(--dg-weight-medium); }

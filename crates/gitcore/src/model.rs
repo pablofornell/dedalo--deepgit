@@ -424,6 +424,29 @@ pub struct FileDiff {
     pub too_large: bool,
 }
 
+/// One side of an image diff.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageSide {
+    /// Size of the file in bytes.
+    pub size: u64,
+    /// `image/png`, `image/svg+xml`...; from the file extension.
+    pub mime: String,
+    /// The file as standard base64. `None` when `too_large`.
+    pub data: Option<String>,
+    /// More than 20 MiB: the bytes are not sent.
+    pub too_large: bool,
+}
+
+/// The two sides of an image diff. A side is `None` when the file does not exist there (added,
+/// deleted, root commit, untracked).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct FileImages {
+    pub old: Option<ImageSide>,
+    pub new: Option<ImageSide>,
+}
+
 /// Tracked and untracked files of the worktree, without the ignored ones. The ignored entries come
 /// apart in `ignored`.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]

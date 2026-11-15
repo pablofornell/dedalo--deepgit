@@ -6,6 +6,7 @@
  *   <DiffViewer repoId={id} spec={{ kind: "commit", oid, parent: null }} path="src/a.rs" />
  */
 import { type JSX, Match, Show, Switch, batch, createEffect, createMemo, createResource, createSignal, For, on, onCleanup, onMount, untrack } from "solid-js";
+import { isImagePath } from "../../api/imageFiles";
 import * as api from "../../api/tauri";
 import type { DiffSpec, FileDiff, HunkRef } from "../../api/types";
 import { Button, EmptyState, Icon, IconButton, SegmentedControl, Spinner, StatusLetter, copyText, fileIconFor, openMenu, shortOid, splitDragging, splitPath, statusColorVar, toast, type MenuItem } from "../../components/ui";
@@ -22,6 +23,8 @@ import {
 } from "./diffModel";
 import { SbsHalf, UnifiedRow, type RowCtx } from "./DiffRows";
 import { hunkHash } from "./hunkHash";
+import { ImageDiff } from "./ImageDiff";
+import type { ImageChange } from "./imageModel";
 import { stepToward, targetScrollLeft } from "./pointerScroll";
 import { languageFor } from "./syntax";
 import "./diff.css";
@@ -78,6 +81,12 @@ export function DiffViewer(props: DiffViewerProps): JSX.Element {
     fellBack = !explicit && m === "unified" && saved !== "unified";
     return m;
   });
+
+  // Image files show a picture diff. An SVG is also text: the user may switch to its text diff (kept for this path only).
+  const isSvg = () => props.path.toLowerCase().endsWith(".svg");
+  const [svgTextPath, setSvgTextPath] = createSignal<string | null>(null);
+  const showImage = () => isImagePath(props.path) && !(isSvg() && svgTextPath() === props.path);
+  const [imageChange, setImageChange] = createSignal<ImageChange | null>(null);
 
   let loadedKey = "";
   let root: HTMLDivElement | undefined;
@@ -441,6 +450,13 @@ export function DiffViewer(props: DiffViewerProps): JSX.Element {
   const path = () => splitPath(props.path);
   const fileStatus = () => {
     const d = diff();
+    if (showImage()) {
+      // A picture has no text hunks: the two sides say whether it was added or deleted.
+      if (props.oldPath && props.oldPath !== props.path) return "renamed";
+      const c = imageChange();
+      if (c === "added" || c === "deleted") return c;
+      return d ? statusOf(d, props.path, props.oldPath) : "modified";
+    }
     return d ? statusOf(d, props.path, props.oldPath) : "modified";
   };
   const wsOnly = createMemo(() => {
@@ -504,7 +520,7 @@ export function DiffViewer(props: DiffViewerProps): JSX.Element {
           <span class="dg-diff-dir">{path().dir}</span>
           <span class="dg-diff-name" style={diff() ? { color: statusColorVar(fileStatus()) } : undefined}>{path().name}</span>
         </span>
-        <Show when={diff()}>
+        <Show when={diff() || (showImage() && imageChange())}>
           <StatusLetter status={fileStatus()} />
           <Show when={counts().additions > 0}>
             <span class="dg-diff-n dg-diff-n-add">+{fmt(counts().additions)}</span>
@@ -526,7 +542,7 @@ export function DiffViewer(props: DiffViewerProps): JSX.Element {
         <IconButton icon="copy" label="Copy path" size="small" iconSize={14} onClick={() => void copyPath()} />
         <span class="dg-diff-grow" />
         {props.toolbarExtra}
-        <Show when={changes().length > 0}>
+        <Show when={!showImage() && changes().length > 0}>
           <span class="dg-diff-nav">
             <IconButton icon="arrowUp" label="Previous change" shortcut="Shift+F7" iconSize={14} disabled={active() <= 0} onClick={() => goTo(active() - 1)} />
             <span class="dg-diff-nav-text">
@@ -536,19 +552,35 @@ export function DiffViewer(props: DiffViewerProps): JSX.Element {
           </span>
           <span class="dg-diff-vsep" />
         </Show>
-        <SegmentedControl
-          label="Diff layout"
-          value={mode()}
-          onChange={chooseDiffMode}
-          options={[
-            { value: "sideBySide", label: narrow() ? undefined : "Side by side", icon: "sideBySide", title: "Side by side  Ctrl+Alt+D" },
-            { value: "unified", label: narrow() ? undefined : "Unified", icon: "unified", title: "Unified  Ctrl+Alt+D" },
-          ]}
-        />
+        <Show when={isImagePath(props.path) && isSvg()}>
+          <SegmentedControl
+            label="SVG view"
+            value={showImage() ? "image" : "text"}
+            onChange={(v) => setSvgTextPath(v === "text" ? props.path : null)}
+            options={[
+              { value: "image", label: narrow() ? undefined : "Image", icon: "fileImage", title: "Show the picture" },
+              { value: "text", label: narrow() ? undefined : "Text", icon: "file", title: "Show the text diff" },
+            ]}
+          />
+        </Show>
+        <Show when={!showImage()}>
+          <SegmentedControl
+            label="Diff layout"
+            value={mode()}
+            onChange={chooseDiffMode}
+            options={[
+              { value: "sideBySide", label: narrow() ? undefined : "Side by side", icon: "sideBySide", title: "Side by side  Ctrl+Alt+D" },
+              { value: "unified", label: narrow() ? undefined : "Unified", icon: "unified", title: "Unified  Ctrl+Alt+D" },
+            ]}
+          />
+        </Show>
         <IconButton icon="more" label="Diff options" onClick={optionsMenu} />
       </div>
 
       <Switch>
+        <Match when={showImage()}>
+          <ImageDiff repoId={props.repoId} spec={props.spec} path={props.path} oldPath={props.oldPath} onChange={setImageChange} />
+        </Match>
         <Match when={status() === "error"}>
           <EmptyState
             icon="error"

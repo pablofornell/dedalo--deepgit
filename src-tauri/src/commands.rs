@@ -5,12 +5,12 @@
 use std::sync::Arc;
 
 use gitcore::{
-    clone as gitclone, conflicts as gitconflicts, diff, files as gitfiles, log, ops,
+    clone as gitclone, conflicts as gitconflicts, diff, files as gitfiles, image, log, ops,
     refs as gitrefs, status, ApiError, CloneOpts, CloneProgress, CloneResult, CloneTarget,
     CommitDetails, CommitRow, ConflictEntry, ConflictSide, ConflictVersions, DiffSpec, FileDiff,
-    FileList, Git, HunkRef, IgnoreFile, IgnoreTarget, InitInfo, LogQuery, LogSessionInfo,
-    MergeOpts, OpResult, Project, Refs, RepoChanged, RepoInfo, RepoSummary, ResetMode,
-    SearchResult, StashUntracked, TextFile, WorkingTree, Workspace,
+    FileImages, FileList, Git, HunkRef, IgnoreFile, IgnoreTarget, InitInfo, LogQuery,
+    LogSessionInfo, MergeOpts, OpResult, Project, Refs, RepoChanged, RepoInfo, RepoSummary,
+    ResetMode, SearchResult, StashUntracked, TextFile, WorkingTree, Workspace,
 };
 use gitcore::{AuthMode, GitError};
 use tauri::{AppHandle, Emitter, State};
@@ -268,6 +268,21 @@ pub async fn file_content(
 ) -> Res<String> {
     read(&state, &repo_id, move |g, r| {
         diff::file_content(g, r, rev.as_deref(), &path)
+    })
+    .await
+}
+
+/// The two sides of an image file (base64, 20 MiB cap) for the image diff.
+#[tauri::command]
+pub async fn file_images(
+    state: St<'_>,
+    repo_id: String,
+    spec: DiffSpec,
+    path: String,
+    old_path: Option<String>,
+) -> Res<FileImages> {
+    read(&state, &repo_id, move |g, r| {
+        image::file_images(g, r, &spec, &path, old_path.as_deref())
     })
     .await
 }

@@ -24,4 +24,8 @@
   --dg-font-size-subject: round(calc(15 * var(--dg-u)), 1px);     /* commit subject in the details panel */
   --dg-font-size-body: calc(12.5 * var(--dg-u));                    /* commit body in the details panel */
   --dg-font-size-mono-small: calc(var(--dg-font-size-mono) - 0.5px); /* hashes in rows, command ticker */
+  --dg-image-checker-a: var(--dg-island-bg);                          /* image diff: checkerboard behind transparent pixels */
+  --dg-image-checker-b: color-mix(in srgb, var(--dg-text) 12%, var(--dg-island-bg));
+  --dg-image-checker-size: round(calc(8 * var(--dg-u)), 1px);
+  --dg-image-grip-size: round(calc(14 * var(--dg-u)), 1px);           /* image diff: handle on the swipe divider */
 }

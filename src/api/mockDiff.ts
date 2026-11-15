@@ -4,6 +4,7 @@
  * or an `[old, new]` alternative. A seed picks which alternatives are active, so the same path
  * gets different (but valid, multi-hunk) diffs in different commits.
  */
+import { isImagePath } from "./imageFiles";
 import type { DiffLine, FileChange, FileDiff, Hunk } from "./types";
 
 type Seg = string | [string, string];
@@ -604,6 +605,8 @@ export function fileText(path: string, seed: string): string {
 }
 
 export function toFileChange(path: string, oldPath: string | null, status: FileChange["status"], seed: string): FileChange {
+  // git counts no lines in a binary image (SVG is text)
+  if (isImagePath(path) && !path.toLowerCase().endsWith(".svg")) return { path, oldPath, status, additions: null, deletions: null, binary: true };
   const kind = status === "added" || status === "untracked" ? "added" : status === "deleted" ? "deleted" : "modified";
   const c = countChanges(path, seed, kind);
   return { path, oldPath, status, additions: c.additions, deletions: c.deletions, binary: false };

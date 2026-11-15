@@ -395,6 +395,10 @@ export function generateRepo(info: RepoInfo, url: string, sc: Scenario, nowSec: 
           { path: "migrations/0042_idempotency_keys.sql", status: "added" },
           { path: "tests/refunds_test.rs", oldPath: "tests/refund_test.rs", status: "renamed" },
           { path: "Cargo.toml", status: "modified" },
+          { path: "docs/img/refund-flow.png", status: "modified" },
+          { path: "docs/img/refund-badge.svg", status: "added" },
+          { path: "docs/img/old-diagram.png", status: "deleted" },
+          { path: "docs/img/logo.png", oldPath: "docs/img/brand.png", status: "renamed" },
         ];
       }
       tip = c.oid;
@@ -448,6 +452,11 @@ export function generateRepo(info: RepoInfo, url: string, sc: Scenario, nowSec: 
       const p = `src/scratch/notes_${i + 1}.${dom.lang === "rust" ? "rs" : "ts"}`;
       repo.wt.unstaged.push(toFileChange(p, null, "untracked", "wt-untracked-" + p));
     }
+  }
+  // Demo image changes in api-gateway (image diff: changed, added, a PNG with transparency).
+  if (info.name === "api-gateway") {
+    repo.wt.unstaged.push(toFileChange("docs/img/architecture.png", null, "modified", "wt-unstaged-docs/img/architecture.png"));
+    repo.wt.unstaged.push(toFileChange("docs/img/banner.svg", null, "untracked", "wt-untracked-docs/img/banner.svg"));
   }
   // Demo conflicts with real file versions (merge window): docs-site is merging, ledger-service is rebasing.
   const demo = info.name === "docs-site" ? { list: DOCS_SITE_CONFLICTS, ctx: DOCS_SITE_CONTEXT } : info.name === "ledger-service" ? { list: LEDGER_CONFLICTS, ctx: LEDGER_CONTEXT } : null;
