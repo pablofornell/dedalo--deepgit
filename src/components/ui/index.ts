@@ -13,7 +13,7 @@ export { Button, IconButton, type ButtonProps, type IconButtonProps } from "./Bu
 export { TextField, SearchField, type TextFieldProps, type SearchFieldProps } from "./TextField";
 export { Checkbox, type CheckboxProps } from "./Checkbox";
 export { Select, type SelectProps, type SelectOption } from "./Select";
-export { MenuHost, openContextMenu, openMenu, closeMenu, isMenuOpen, type MenuItem } from "./Menu";
+export { MenuHost, openContextMenu, openMenu, closeMenu, isMenuOpen, type MenuItem, type MenuSearch } from "./Menu";
 export { Popup, type PopupProps, type PopupPlacement } from "./Popup";
 export { Dialog, DialogHost, openDialog, hasOpenDialog, moveDialogBy, type DialogProps, type DialogAction, type DialogComponentProps } from "./Dialog";
 export { type PendingReanchor, reanchorClick, reanchorResized, reanchorScale } from "./dialogGeometry";

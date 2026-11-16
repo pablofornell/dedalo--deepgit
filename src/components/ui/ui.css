@@ -197,6 +197,10 @@
 .dg-menu-arrow { margin-right: -4px; color: var(--dg-icon-secondary); }
 .dg-menu-sep { height: var(--dg-menu-separator-height); display: flex; align-items: center; margin: 0 6px; }
 .dg-menu-sep::before { content: ""; flex: 1; height: 1px; background: var(--dg-separator); }
+.dg-menu-search { padding: 2px 6px 6px; }
+.dg-menu-search .dg-field { width: 100%; }
+.dg-menu-list.is-scroll { max-height: min(60vh, 420px); overflow-y: auto; }
+.dg-menu-empty { padding: 8px 14px; color: var(--dg-text-secondary); font-size: var(--dg-font-size-medium); }
 .dg-menu-heading { padding: 6px 14px 2px; color: var(--dg-accent-fg); font-size: var(--dg-font-size-small); font-weight: var(--dg-weight-semibold); }
 
 /* ---------------------------------------------------------------- Tooltip */

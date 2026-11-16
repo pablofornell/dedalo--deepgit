@@ -15,6 +15,9 @@
  * Keyboard: Up/Down/Home/End move, Right opens a submenu, Left closes it, Enter/Space selects, Esc closes.
  * Panels are keyed by depth, so hovering only moves the highlight (no remount, no re-measure, no pop-in replay). A pointer
  * travelling diagonally towards an open submenu does not close it (`menuGeometry.ts`).
+ * A dropdown can carry a search field (`openMenu(button, items, { search })`): it takes the focus when the menu opens and
+ * filters, as you type, the items that have `filterText` (case and accents ignored); the other items are hidden while a
+ * query is on. Up/Down move over the matches, Enter selects, Esc clears the query first and closes the menu when it is empty.
  * Items are listed top to bottom exactly as given; build the array when the menu opens (`items` may be a function).
  */
 import { type Accessor, For, Index, type JSX, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
@@ -23,8 +26,10 @@ import { trackOverlay } from "../../state/keymap";
 import { closeWhenDialogOpens } from "../../state/overlays";
 import { IconButton } from "./Button";
 import { Icon } from "./Icon";
+import { SearchField } from "./TextField";
 import type { IconName } from "./icons";
 import { Kbd } from "./Kbd";
+import { filterMenuItems } from "./menuFilter";
 import { movingToward } from "./menuGeometry";
 
 export interface MenuItem {
@@ -50,6 +55,15 @@ export interface MenuItem {
   onRename?: () => void;
   /** Icon button at the right end of the row; shows on hover and on the active row. `Delete` on the active row runs it. */
   trailingAction?: { icon: IconName; label: string; onSelect: () => void };
+  /** Text the menu's search field matches (the item's name). Items without it are hidden while a query is on. */
+  filterText?: string;
+}
+
+/** Search field at the top of a dropdown. */
+export interface MenuSearch {
+  placeholder: string;
+  /** Text shown when no item matches the query. */
+  empty: string;
 }
 
 interface Level {
@@ -59,10 +73,16 @@ interface Level {
   /** Rect of the parent item (submenus) or anchor (dropdowns). */
   parent?: DOMRect;
   active: number;
+  /** Dropdowns with a search field: the field, every item, and the text typed. `items` is then the filtered view. */
+  search?: MenuSearch;
+  all?: MenuItem[];
+  query?: string;
 }
 
 const [levels, setLevels] = createSignal<Level[]>([]);
 let openTimer = 0;
+/** Where the focus was when a menu with a search field opened. */
+let focusBefore: HTMLElement | null = null;
 /** Last pointer position seen over the menu; used to tell "moving towards the submenu" from "moving to another item". */
 let lastPointer: { x: number; y: number } | null = null;
 
@@ -91,16 +111,31 @@ export function openContextMenu(e: PointLike | MouseEvent, items: MenuItem[] | (
 }
 
 /** Opens a dropdown menu under `anchor` (a button). */
-export function openMenu(anchor: HTMLElement, items: MenuItem[] | (() => MenuItem[])): void {
+export function openMenu(anchor: HTMLElement, items: MenuItem[] | (() => MenuItem[]), opts?: { search?: MenuSearch }): void {
   const r = anchor.getBoundingClientRect();
   const list = typeof items === "function" ? items() : items;
   if (list.length === 0) return;
-  setLevels([{ items: list, x: r.left, y: r.bottom + 2, parent: r, active: -1 }]);
+  if (opts?.search) focusBefore = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  setLevels([{ items: list, x: r.left, y: r.bottom + 2, parent: r, active: -1, search: opts?.search, all: opts?.search ? list : undefined, query: "" }]);
+}
+
+/** Types into the search field of the open dropdown: shows the matches and highlights the first one. */
+function setQuery(query: string): void {
+  setLevels((ls) => {
+    const top = ls[0];
+    if (!top?.all) return ls;
+    const items = filterMenuItems(top.all, query);
+    return [{ ...top, query, items, active: query.trim() ? firstSelectable(items) : -1 }];
+  });
 }
 
 export function closeMenu(): void {
   window.clearTimeout(openTimer);
   setLevels([]);
+  // a menu with a search field took the focus: give it back
+  const back = focusBefore;
+  focusBefore = null;
+  if (back?.isConnected) back.focus();
 }
 
 export const isMenuOpen = (): boolean => levels().length > 0;
@@ -133,10 +168,16 @@ function onKey(e: KeyboardEvent): void {
     e.preventDefault();
     e.stopPropagation();
   };
+  if (e.isComposing) return; // an input method is composing text: Enter / Esc belong to it
+  // in the menu's own search field these keys edit the text (Delete still runs the row's action when it has nothing to delete)
+  const field = e.target instanceof HTMLInputElement && e.target.closest(".dg-menu-search") ? e.target : null;
+  if (field && [" ", "Home", "End", "ArrowLeft", "ArrowRight"].includes(e.key)) return;
+  if (field && e.key === "Delete" && field.selectionStart !== field.value.length) return;
   switch (e.key) {
     case "Escape":
       stop();
-      if (depth > 0) setLevels(ls.slice(0, depth));
+      if (depth === 0 && lvl.query) setQuery("");
+      else if (depth > 0) setLevels(ls.slice(0, depth));
       else closeMenu();
       break;
     case "ArrowDown":
@@ -234,6 +275,15 @@ function MenuPanel(props: { level: Accessor<Level>; depth: number }): JSX.Elemen
   const y = createMemo(() => props.level().y);
   const parent = createMemo(() => props.level().parent);
   const items = createMemo(() => props.level().items);
+  const search = createMemo(() => props.level().search);
+  const noMatch = () => !!props.level().query?.trim() && items().length === 0;
+  let list: HTMLDivElement | undefined;
+  let input: HTMLInputElement | undefined;
+  // the highlighted row stays in view when the list scrolls
+  createEffect(() => {
+    const a = props.level().active;
+    if (a >= 0) list?.querySelector<HTMLElement>(`[data-menu-index="${a}"]`)?.scrollIntoView({ block: "nearest" });
+  });
 
   createEffect(() => {
     const px = x();
@@ -264,8 +314,36 @@ function MenuPanel(props: { level: Accessor<Level>; depth: number }): JSX.Elemen
       data-menu-level={props.depth}
       style={{ visibility: "hidden" }}
       onContextMenu={(e) => e.preventDefault()}
+      onMouseDown={(e) => {
+        // a click on the panel must not take the focus from the search field
+        if (search() && !(e.target as Element).closest("input")) e.preventDefault();
+      }}
       onMouseEnter={() => window.clearTimeout(openTimer)}
     >
+      <Show when={search()}>
+        {(sr) => (
+          <div class="dg-menu-search">
+            <SearchField
+              size="filter"
+              value={props.level().query ?? ""}
+              onInput={setQuery}
+              onClear={() => input?.focus()}
+              inputRef={(el) => {
+                input = el;
+                queueMicrotask(() => el.focus());
+              }}
+              placeholder={sr().placeholder}
+              aria-label={sr().placeholder}
+              autocomplete="off"
+              spellcheck={false}
+            />
+          </div>
+        )}
+      </Show>
+      <div ref={list} class="dg-menu-list" classList={{ "is-scroll": !!search() }}>
+      <Show when={noMatch()}>
+        <div class="dg-menu-empty" role="status">{search()?.empty}</div>
+      </Show>
       <For each={items()}>
         {(item, i) => (
           <Show
@@ -345,6 +423,7 @@ function MenuPanel(props: { level: Accessor<Level>; depth: number }): JSX.Elemen
           </Show>
         )}
       </For>
+      </div>
     </div>
   );
 }
@@ -361,6 +440,11 @@ export function MenuHost(): JSX.Element {
       closeMenu();
     };
     const dismiss = () => closeMenu();
+    // a list with a search field scrolls: the wheel over it does not close the menu
+    const wheel = (e: WheelEvent) => {
+      if ((e.target as Element | null)?.closest?.(".dg-menu-list.is-scroll, .dg-menu-search")) return;
+      closeMenu();
+    };
     const move = (e: MouseEvent) => {
       lastPointer = { x: e.clientX, y: e.clientY };
     };
@@ -369,7 +453,7 @@ export function MenuHost(): JSX.Element {
     document.addEventListener("pointerdown", down, true);
     window.addEventListener("blur", dismiss);
     window.addEventListener("resize", dismiss);
-    window.addEventListener("wheel", dismiss, { passive: true });
+    window.addEventListener("wheel", wheel, { passive: true });
     onCleanup(() => {
       document.removeEventListener("mousemove", move, true);
       lastPointer = null;
@@ -377,7 +461,7 @@ export function MenuHost(): JSX.Element {
       document.removeEventListener("pointerdown", down, true);
       window.removeEventListener("blur", dismiss);
       window.removeEventListener("resize", dismiss);
-      window.removeEventListener("wheel", dismiss);
+      window.removeEventListener("wheel", wheel);
     });
   });
   return (

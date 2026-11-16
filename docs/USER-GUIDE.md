@@ -62,6 +62,7 @@ A project with several repositories shows all of them together:
 
 Click the project switcher in the title bar. The menu has these items:
 
+- A search field at the top (it has the focus when the menu opens). Type to filter the projects by name; `Up`/`Down` move over the results, `Enter` opens the selected project, `Esc` clears the field and then closes the menu.
 - The list of your projects. Click a name to switch. Press `F2` on a project to rename it.
 - **Add project folder…**
 - **Rename \<project\>…**: gives the project another name (see below).

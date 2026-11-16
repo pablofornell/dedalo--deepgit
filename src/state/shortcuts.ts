@@ -5,10 +5,9 @@
  */
 import * as actions from "./actions";
 import { notifyRepoChanged } from "./events";
-import { openBottomTool, setSidebarVisible, toggleBottomTool, toggleSidebar } from "./layout";
+import { openBottomTool, toggleBottomTool, toggleSidebar } from "./layout";
 import { register } from "./keymap";
 import { inTextField, navBack, navForward } from "./navigation";
-import { requestProjectFilterFocus } from "./projectFilter";
 import { detailsTab, mainTab, setDetailsTab, setMainTab } from "./selection";
 import { toggleTheme } from "./settings";
 import { activeProject, focusedRepo, projectRepos, refreshSummaries } from "./workspace";
@@ -25,12 +24,6 @@ export function registerGlobalShortcuts(): void {
   const outsideEditor = (when: () => boolean) => () => when() && !inFilesEditor();
   const ge = (title: string) => ({ title, group: "Global", when: outsideEditor(hasProject), allowInInput: true });
   register("tool.sidebar", "Alt+1", toggleSidebar, { title: "Toggle project sidebar", group: "Tool windows" });
-  // The filter field exists when the project has 2 or more repos; with one repo the key does nothing and lets the event through.
-  register("sidebar.filter", "Ctrl+Alt+F", () => {
-    if (projectRepos().length < 2) return false;
-    setSidebarVisible(true);
-    requestProjectFilterFocus();
-  }, { title: "Filter projects in the sidebar", group: "Tool windows", when: hasProject, allowInInput: true });
   register("tool.changes", "Alt+0", () => setMainTab(mainTab() === "changes" ? "log" : "changes"), { title: "Show local changes", group: "Tool windows", when: hasProject });
   register("tool.matrix", "Alt+2", () => toggleBottomTool("matrix"), { title: "Toggle branch matrix", group: "Tool windows", when: hasProject });
   register("tool.files", "Alt+3", () => setMainTab(mainTab() === "files" ? "log" : "files"), { title: "Show project files", group: "Tool windows", when: hasProject });

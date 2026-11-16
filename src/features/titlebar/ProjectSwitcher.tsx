@@ -49,6 +49,7 @@ export function ProjectSwitcher(): JSX.Element {
     for (const p of sortedProjects()) {
       list.push({
         label: p.name,
+        filterText: p.name,
         shortcut: plural(p.repos.length, "repo"),
         checked: p.id === active?.id,
         tooltip: `${p.name}\n${p.path}`,
@@ -73,7 +74,7 @@ export function ProjectSwitcher(): JSX.Element {
   };
 
   const open = () => {
-    if (button) openMenu(button, items);
+    if (button) openMenu(button, items, { search: { placeholder: "Search projects", empty: "No projects match your search." } });
   };
 
   const offs = [register("project.switch", "Ctrl+Alt+P", open, { title: "Switch project", group: "Global", allowInOverlay: true })];
