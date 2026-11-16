@@ -16,6 +16,7 @@ import {
   setFocusedRepoId, summary, toggleRepo,
 } from "../../state/workspace";
 import { collapsedFor, collapsedKey, noCollapsed, pruneCollapsed, type CollapsedState } from "./collapsed";
+import { restoreSidebarState, sidebarStateKey } from "./projectState";
 import { allHidden, toggleFolder, showOnly } from "./folders";
 import { nodeMenu } from "./menus";
 import { ProjectNameEditor } from "./ProjectNameEditor";
@@ -95,34 +96,38 @@ export function Sidebar(): JSX.Element {
   const hl = () => q();
   let root: HTMLDivElement | undefined;
 
-  // Start with the focused repo open (Local and origin expanded), whenever the project changes.
+  // The tree of a project stays as the user left it: its open repos / groups, "N more…" lists, selected row and open
+  // folders are saved per project and brought back when the project becomes active again. A project seen for the first
+  // time starts closed (`defaultSidebarState`); the switch itself opens and focuses nothing.
+  /** Project whose state the signals above hold, or null while a switch is being applied. */
+  let stateOf: string | null = null;
   createEffect(
     on(
       () => activeProject()?.id,
       () => {
-        const repos = projectRepos();
-        const target = repos.length === 1 ? repos[0] : repos.find((r) => r.id === focusedRepoIdSignal()) ?? repos[0];
-        const open = new Set<string>();
-        if (target) {
-          if (repos.length > 1) open.add(ids.repo(target.id));
-          open.add(ids.group(target.id, "local"));
-          open.add(ids.remote(target.id, "origin"));
-        }
-        ex.set(open);
-        setMoreOpen(new Set<string>());
         const projectId = activeProject()?.id ?? null;
+        stateOf = null;
+        const repoIds = projectRepos().map((r) => r.id);
+        const state = restoreSidebarState(loadPersisted<unknown>(sidebarStateKey(projectId), null), repoIds, untrack(focusedRepoIdSignal));
+        ex.set(new Set(state.expanded));
+        setMoreOpen(new Set(state.moreOpen));
+        setSelected(state.selected);
         setCollapsedState({ projectId, ids: new Set(loadPersisted<string[]>(collapsedKey(projectId), [])) });
         setQuery("");
-        setSelected(target ? (repos.length > 1 ? ids.repo(target.id) : null) : null);
-        if (target && repos.length > 1) reveal(target.id);
+        stateOf = projectId;
       },
     ),
   );
+  createEffect(() => {
+    const state = { expanded: [...expanded()], moreOpen: [...moreOpen()], selected: selected() };
+    if (stateOf !== null) savePersisted(sidebarStateKey(stateOf), state);
+  });
 
-  // The focused repo (set from the log, the status bar...) is the selected row.
+  // The focused repo (set from the log, the status bar...) is the selected row. A project switch brings back the repo
+  // focused there and the row saved with it: that is not a pick, so it selects and opens nothing.
   createEffect(
-    on(focusedRepoIdSignal, (id) => {
-      if (!id || single()) return;
+    on([focusedRepoIdSignal, () => activeProject()?.id] as const, ([id, projectId], prev) => {
+      if (!id || single() || !prev || prev[1] !== projectId) return;
       const cur = selected();
       if (!cur || !cur.includes(id)) {
         setSelected(ids.repo(id));
