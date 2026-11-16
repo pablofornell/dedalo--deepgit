@@ -69,7 +69,8 @@ export const changesScopeCount = (): number => changesCount(changesScopeRepos(),
 /**
  * Selects a commit (or none) and focuses its repo. The selected file stays: `CommitDetails` re-points it to the new
  * commit when the commit changes the same path, and drops it (back to "Changed files") when it does not.
- * Selecting no commit drops a commit file at once.
+ * Selecting no commit drops a commit file at once. A new commit while "File changes" shows no file returns to
+ * "Changed files".
  */
 export function setSelectedCommit(c: SelectedCommit | null): void {
   const prev = commit();
@@ -81,7 +82,12 @@ export function setSelectedCommit(c: SelectedCommit | null): void {
     setFile(null);
     setDTab("files");
   }
-  if (c) setFocusedRepoId(c.repoId);
+  if (c) {
+    setFocusedRepoId(c.repoId);
+    // File changes with no file selected is an empty view: show Changed files for the new commit. With a file open,
+    // `CommitDetails` decides (follow the file or drop it and return to Changed files).
+    if (dTab() === "diff" && !file()) setDTab("files");
+  }
 }
 
 /**
