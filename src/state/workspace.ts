@@ -18,6 +18,7 @@ import { dirtyCount } from "./changesScope";
 import { createBatchRefresher } from "./coalesce";
 import { subscribeRepoChanged } from "./events";
 import { loadPersisted, savePersisted } from "./persist";
+import { focusKey, resolveFocus } from "./projectFocus";
 import { sidebarOrder } from "./repoTree";
 
 // ---------------------------------------------------------------- projects
@@ -61,8 +62,8 @@ export async function loadWorkspace(): Promise<void> {
   const ws = await api.workspaceLoad();
   batch(() => {
     setWorkspace({ projects: ws.projects, activeProjectId: ws.activeProjectId ?? ws.projects[0]?.id ?? null, loaded: true });
+    projectSwitched();
   });
-  projectSwitched();
   await refreshSummaries();
 }
 
@@ -102,8 +103,11 @@ export async function addProject(path?: string): Promise<Project | null> {
 
 export async function setActiveProject(projectId: string): Promise<void> {
   await api.projectSetActive(projectId);
-  setWorkspace("activeProjectId", projectId);
-  projectSwitched();
+  // one step: the sidebar sees the new project together with its restored focus, not the old project's focused repo
+  batch(() => {
+    setWorkspace("activeProjectId", projectId);
+    projectSwitched();
+  });
   await refreshSummaries();
 }
 
@@ -164,8 +168,10 @@ export async function adoptClonedProject(result: CloneResult): Promise<void> {
   );
   if (workspace.activeProjectId !== project.id) {
     await api.projectSetActive(project.id);
-    setWorkspace("activeProjectId", project.id);
-    projectSwitched();
+    batch(() => {
+      setWorkspace("activeProjectId", project.id);
+      projectSwitched();
+    });
   } else {
     restoreRepoFilter();
   }
@@ -208,7 +214,10 @@ export function onActiveProjectChanged(cb: () => void): () => void {
   return () => switchListeners.delete(cb);
 }
 
-/** The active project is another one now: resets selection (via listeners), repo filter and focused repo. */
+/**
+ * The active project is another one now: resets selection (via listeners) and brings back the repo filter and the focused
+ * repo the user left in that project. Nothing is opened or focused that was not.
+ */
 function projectSwitched(): void {
   batch(() => {
     switchListeners.forEach((cb) => cb());
@@ -225,7 +234,7 @@ function restoreRepoFilter(): void {
   const saved = loadPersisted<string[] | null>(filterKey(), null);
   const valid = saved ? all.filter((id) => saved.includes(id)) : [];
   setSelectedIds(valid.length > 0 ? valid : all);
-  setFocusedRepoIdRaw(all.includes(focusedRepoId() ?? "") ? focusedRepoId() : all[0] ?? null);
+  setFocusedRepoIdRaw(resolveFocus(all, focusedRepoId(), loadPersisted<string | null>(focusKey(workspace.activeProjectId), null)));
 }
 
 /** Repo ids shown in the log and the changes view (the "Repos: 5 of 12" filter). Never empty when the project has repos. */
@@ -279,10 +288,14 @@ export const focusedRepo = (): RepoInfo | undefined => {
   return projectRepos().find((r) => r.id === id) ?? projectRepos()[0];
 };
 export const focusedRepoIdSignal = focusedRepoId;
-/** Focuses a repo of the active project; ids that are not in it (e.g. left over from another project) are ignored. */
+/**
+ * Focuses a repo of the active project; ids that are not in it (e.g. left over from another project) are ignored. The
+ * focus is saved for the project, so a project switch gives it back.
+ */
 export function setFocusedRepoId(repoId: string | null): void {
   if (repoId !== null && !projectRepos().some((r) => r.id === repoId)) return;
   setFocusedRepoIdRaw(repoId);
+  if (repoId !== null && workspace.activeProjectId) savePersisted(focusKey(workspace.activeProjectId), repoId);
 }
 
 // ---------------------------------------------------------------- summaries
