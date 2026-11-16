@@ -19,7 +19,7 @@ import { mockFileImages } from "./mockImages";
 import { CHANGED_ON_DISK, appendIgnoreLines, createEntryError, fileKey, folderChain, filePathError, ignorePatternError, isFolder, listFiles, readText, searchFiles, versionOf } from "./mockFiles";
 import { uniqueProjectName, validateProjectName } from "./projectName";
 import { validateRefName } from "../features/dialogs/refname";
-import { entryOf, genericConflicts, currentOids, hasStage, isTextConflict, sideStages, versionsOf, type MockConflict } from "./mockConflicts";
+import { acceptedTextOf, entryOf, genericConflicts, currentOids, hasStage, isTextConflict, markerLabels, sideStages, versionsOf, worktreeTextOf, type MockConflict } from "./mockConflicts";
 import type {
   CloneOpts, CloneProgress, CloneResult, CloneTarget, CommitDetails, CommitRow, ConflictEntry, ConflictLabels, ConflictVersions, ConsoleEntry, DiffSpec,
   FileChange, FileDiff, FileImages, GraphRow, IgnoreFile, IgnoreTarget, LocalBranch, LogQuery, LogSessionInfo, MergeMode, MergeOpts, OpResult, Project, RefLabel, Refs, RepoChanged, RepoInfo,
@@ -577,6 +577,11 @@ function enterConflictState(repo: MockRepo, kind: "merging" | "rebasing" | "cher
   repo.wt.conflicted = found.map((c) => ({ path: c.path, oldPath: null, status: "conflicted", additions: null, deletions: null, binary: false }));
   const head = repo.byOid.get(repo.head.oid);
   repo.conflictCtx = { theirs, replayed: kind === "rebasing" ? `${short(repo.head.oid)} ${head?.subject ?? ""}`.trim() : undefined };
+  // the files on disk hold the conflict markers, like git leaves them
+  for (const c of found) {
+    const text = worktreeTextOf(c, markerLabels(repo.conflictCtx, kind === "rebasing"));
+    if (text !== null) repo.worktree.set(c.path, text);
+  }
 }
 
 // ---------------------------------------------------------------- conflicts (mirror of gitcore::conflicts)
@@ -1503,12 +1508,19 @@ const handlers: Record<string, Handler> = {
       const names = keep.map((x) => x.path);
       c.git(repo, ["--literal-pathspecs", "checkout", stageNo === 2 ? "--ours" : "--theirs", "--", ...names]);
       c.git(repo, ["--literal-pathspecs", "add", "-A", "--", ...names]);
-      for (const x of keep) markConflictResolved(repo, x.path, "modified");
+      for (const x of keep) {
+        markConflictResolved(repo, x.path, "modified");
+        const text = acceptedTextOf(x, stageNo);
+        if (text !== null) repo.worktree.set(x.path, text);
+      }
     }
     if (remove.length > 0) {
       const names = remove.map((x) => x.path);
       c.git(repo, ["--literal-pathspecs", "rm", "-q", "--", ...names]);
-      for (const x of remove) markConflictResolved(repo, x.path, "deleted");
+      for (const x of remove) {
+        markConflictResolved(repo, x.path, "deleted");
+        repo.worktree.delete(x.path);
+      }
     }
     emitChanged(repo);
   },
@@ -1525,6 +1537,8 @@ const handlers: Record<string, Handler> = {
       fail("The conflict changed. Reload the merge.");
     }
     if (!isTextConflict(conflict)) fail(`${path} is binary, not UTF-8 or too large: accept Yours or Theirs instead.`);
+    // the worktree holds the merged text (the real command writes it with the line ending of the file)
+    repo.worktree.set(path, conflict.eol === "crlf" ? content.replace(/\r?\n/g, "\r\n") : content);
     if (bool(a.resolved)) {
       c.git(repo, ["--literal-pathspecs", "add", "-A", "--", path]);
       markConflictResolved(repo, path, "modified");
