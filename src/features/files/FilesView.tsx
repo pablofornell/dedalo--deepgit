@@ -10,6 +10,10 @@
  * Shortcuts work on this tab only: Ctrl+S saves, Ctrl+P opens a file by name, Ctrl+Shift+F searches the project,
  * Ctrl+F finds text in the file, Ctrl+H finds and replaces, Ctrl+W and Ctrl+Shift+W close tabs, and Ctrl+Shift+E
  * shows the file in the tree.
+ *
+ * A conflicted file opens with its conflict markers. The editor colours each hunk and puts Accept Yours / Accept Theirs /
+ * both above it (`conflictEditor.ts`), and a bar over the editor counts the conflicts left. "Mark as resolved" saves the
+ * file and stages it, only when no marker is left.
  */
 import { type JSX, For, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount, untrack } from "solid-js";
 import type { EditorState, Text } from "@codemirror/state";
@@ -18,15 +22,17 @@ import * as api from "../../api/tauri";
 import type { FileStatus, TextFile } from "../../api/types";
 import {
   Button, Dialog, EmptyState, Icon, IconButton, Kbd, Spinner, Splitter, StatusLetter, Tree, copyText, createExpanded, fileIconFor, joinRepoPath, loadSplitSize, openContextMenu,
-  openDialog, openMenu, splitPath, statusColorVar, tip, toast, type DialogComponentProps, type MenuItem, type TreeApi, type TreeRowInfo,
+  openDialog, openMenu, plural, splitPath, statusColorVar, tip, toast, type DialogComponentProps, type MenuItem, type TreeApi, type TreeRowInfo,
 } from "../../components/ui";
+import * as actions from "../../state/actions";
 import { confirmAction } from "../../state/dialogs";
 import { repoVersion } from "../../state/events";
 import { openFileRequest, takeOpenFileRequest } from "../../state/fileOpen";
 import { shortcutLabel, register, trackOverlay } from "../../state/keymap";
 import { onOpenFile, setNavFile } from "../../state/navigation";
 import { mainTab } from "../../state/selection";
-import { projectRepos, repoById } from "../../state/workspace";
+import { projectRepos, repoById, summary } from "../../state/workspace";
+import { type ConflictMode, conflictCount, conflictModeOf, goToConflict, setConflictMode } from "./conflictEditor";
 import { createFileState, saveText } from "./editor";
 import { openFind } from "./find/panel";
 import { ProjectSearch, type SearchApi, type SearchOpen } from "./ProjectSearch";
@@ -50,6 +56,8 @@ interface TabInfo {
   /** The version of the file on disk. The editor loaded or saved this version. */
   version: string;
   dirty: boolean;
+  /** Conflicts left in the text (hunks and stray markers). Counted only while the file is conflicted. */
+  conflicts: number;
   error?: string;
 }
 
@@ -193,6 +201,8 @@ export function FilesView(): JSX.Element {
       const d = isDirty(key);
       if (untrack(() => tabOf(key)?.dirty) !== d) patch(key, { dirty: d });
     }
+    const left = conflictCount(u.state);
+    if (left !== conflictCount(u.startState)) patch(key, { conflicts: left });
   };
 
   /** Shows `st` in the editor. It restores the scroll position when the tab had one. */
@@ -251,10 +261,13 @@ export function FilesView(): JSX.Element {
       patch(key, { kind: f.tooLarge ? "tooLarge" : "binary", version: "", dirty: false, error: undefined });
       return;
     }
-    const st = createFileState(f.content, t.path, (u) => onUpdate(key, u), line);
+    let st = createFileState(f.content, t.path, (u) => onUpdate(key, u), line);
+    // a conflicted file starts with its hunks marked (the state that `show` gets must be the one in `states`)
+    const mode = untrack(() => conflictModeFor(t));
+    if (mode.on) st = st.update({ effects: setConflictMode.of(mode) }).state;
     states.set(key, st);
     saved.set(key, st.doc);
-    patch(key, { kind: "text", version: f.version, dirty: false, error: undefined });
+    patch(key, { kind: "text", version: f.version, dirty: false, conflicts: conflictCount(st), error: undefined });
     if (current === key) show(key, st, true);
   };
 
@@ -262,7 +275,7 @@ export function FilesView(): JSX.Element {
     const keys = [...order()];
     openTab(keys, key);
     setOrder(keys);
-    setInfos((m) => ({ ...m, [key]: { key, repoId, path, kind: "loading", version: "", dirty: false } }));
+    setInfos((m) => ({ ...m, [key]: { key, repoId, path, kind: "loading", version: "", dirty: false, conflicts: 0 } }));
   };
 
   /** Opens a file in a tab, or shows its open tab. `after` runs when the text is on screen. */
@@ -352,6 +365,58 @@ export function FilesView(): JSX.Element {
       if (choice === "overwrite") await writeTab(key, true);
       else if (choice === "reload") await readInto(key, lineOf(key));
     }
+  };
+
+  // ---- conflicts. A conflicted file gets the hunk colours and actions. The bar over the editor counts what is left.
+
+  const isConflicted = (t: TabInfo): boolean => statusOf(t.repoId).files.get(t.path) === "conflicted";
+  /** During a rebase the first section of a hunk is Theirs (the branch rebased onto). */
+  const conflictModeFor = (t: TabInfo): ConflictMode => ({ on: isConflicted(t), swapped: summary(t.repoId)?.state === "rebasing" });
+
+  /** Turns the conflict mode of the editor state of tab `key` on or off. */
+  const setMode = (key: string, mode: ConflictMode): void => {
+    const st = states.get(key);
+    if (!st) return;
+    const have = conflictModeOf(st);
+    if (have.on === mode.on && have.swapped === mode.swapped) return;
+    if (current === key && view && view.state === st) {
+      view.dispatch({ effects: setConflictMode.of(mode) });
+      return;
+    }
+    const next = st.update({ effects: setConflictMode.of(mode) }).state;
+    states.set(key, next);
+    patch(key, { conflicts: conflictCount(next) });
+  };
+
+  createEffect(() => {
+    const t = active();
+    if (!t || t.kind !== "text") return;
+    const mode = conflictModeFor(t);
+    untrack(() => setMode(t.key, mode));
+  });
+
+  const conflictTab = createMemo(() => {
+    const t = active();
+    return t && t.kind === "text" && isConflicted(t) ? t : undefined;
+  });
+
+  /** Saves the file and stages it. Refused (with a warning) while a conflict marker is left in the text. */
+  const markResolved = async (key: string): Promise<void> => {
+    const t = tabOf(key);
+    const st = states.get(key);
+    if (!t || !st) return;
+    const left = conflictCount(st);
+    if (left > 0) {
+      toast({ kind: "warning", title: `${plural(left, "conflict")} left in ${splitPath(t.path).name}`, body: "Resolve every conflict before you mark the file as resolved." });
+      if (current === key && view) goToConflict(view, 1);
+      return;
+    }
+    await saveTab(key);
+    // the save can fail, or the user can choose to reload: stage only the text that is on disk
+    const now = states.get(key);
+    if (!tabOf(key) || !now || isDirty(key) || conflictCount(now) > 0) return;
+    const res = await actions.stage(t.repoId, [t.path]);
+    if (res.ok.length > 0) await actions.offerContinue(t.repoId);
   };
 
   /** Removes a tab. The right neighbour becomes the active tab. If there is none, the left neighbour does. */
@@ -1031,7 +1096,39 @@ export function FilesView(): JSX.Element {
           </For>
         </div>
         <div class="dg-fe-body">
-          <div class="dg-fe-editor" ref={(el) => (editorEl = el)} hidden={active()?.kind !== "text"} />
+          <Show when={conflictTab()}>
+            {(t) => (
+              <div class="dg-fe-cfbar" classList={{ "is-resolved": t().conflicts === 0 }} role="status">
+                <Icon name={t().conflicts === 0 ? "check" : "conflict"} size={16} class="dg-fe-cfbar-icon" />
+                <span class="dg-fe-cfbar-text">
+                  {t().conflicts > 0 ? `${plural(t().conflicts, "conflict")} left in this file` : "No conflict markers left. Mark the file as resolved."}
+                </span>
+                <Show when={t().conflicts > 0}>
+                  <IconButton icon="chevronUp" label="Previous conflict" shortcut="Shift+F7" size="small" onClick={() => view && goToConflict(view, -1)} />
+                  <IconButton icon="chevronDown" label="Next conflict" shortcut="F7" size="small" onClick={() => view && goToConflict(view, 1)} />
+                </Show>
+                <span class="dg-grow" />
+                <Button
+                  size="small"
+                  variant="ghost"
+                  disabled={t().dirty}
+                  title={t().dirty ? "Save the file first" : "Open the three-pane merge window for this file"}
+                  onClick={() => void actions.openMerge(t().repoId, t().path)}
+                >
+                  Merge window…
+                </Button>
+                <Button
+                  size="small"
+                  variant="primary"
+                  title={t().conflicts > 0 ? "Resolve every conflict first" : "Save the file and stage it"}
+                  onClick={() => void markResolved(t().key)}
+                >
+                  Mark as resolved
+                </Button>
+              </div>
+            )}
+          </Show>
+          <div class="dg-fe-editor"ref={(el) => (editorEl = el)} hidden={active()?.kind !== "text"} />
           <Show when={!active()}>
             <EmptyState icon="file" title="Select a file to open it">
               Press <Kbd keys={quickKey()} small /> to open a file by name, or <Kbd keys={searchKey()} small /> to search the project.

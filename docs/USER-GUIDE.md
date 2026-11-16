@@ -680,6 +680,21 @@ The file keeps its line ending (LF or CRLF) and its file mode. DeepGit refuses t
 
 The current change is the one under the cursor in the Result, or the one you went to last. Its edges are drawn thicker.
 
+#### Resolve the conflict markers in the Files tab
+
+A file with merge conflicts also opens in the **Files** tab with the conflict markers that git wrote (`<<<<<<<`, `|||||||` when the
+repository uses the diff3 style, `=======`, `>>>>>>>`). Each conflict is one hunk:
+
+- The two sides have a colour: blue for Yours, green for Theirs, grey for the common ancestor. The marker lines are red.
+- Above each hunk, **Accept Yours**, **Accept Theirs**, **Yours + Theirs** and **Theirs + Yours** replace the hunk with that text.
+  Each action is one edit: `Ctrl+Z` undoes it. You can also edit the text by hand.
+- A bar over the editor counts the conflicts left. `F7` and `Shift+F7` (or the arrows in the bar) go to the next and the previous one.
+  **Merge window…** opens the three-pane window for the file (the file must be saved first).
+- **Mark as resolved** saves the file and stages it. It works only when no conflict marker is left in the text; otherwise DeepGit
+  shows a warning and goes to the first conflict that is left.
+
+During a rebase, git writes your upstream first. DeepGit keeps the names of the window: **Yours** is your commit, wherever the marker puts it.
+
 ---
 
 ## 8. Stash

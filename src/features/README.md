@@ -188,6 +188,19 @@ Rules to keep:
 - A hand edit inside a change resolves it (`byHand`); undoing the edit opens it again. Model actions are one undo step each.
 - The mock backend mirrors the Rust rules (path checks, "no longer in conflict", stale blob, binary). Extend `mockConflicts.ts` for new demos.
 
+### Conflict markers in the Files tab
+
+A conflicted file (status `conflicted`) also opens in the Files tab with the markers git wrote in the worktree. No new backend
+command: the tab reads it with `read_text_file`, edits it, saves it with `write_text_file` and "Mark as resolved" runs `stage`.
+
+| File (`features/files/`) | What it does |
+|---|---|
+| `conflictHunks.ts` | Pure: `parseConflicts(text)` gives `hunks` (ours / base / theirs lines, labels, marker lines; diff3 `\|\|\|\|\|\|\|`, marker lengths over 7) and `stray` markers; `resolveHunk`, `resolveAll`, `resolutionLines` with `"ours" \| "theirs" \| "both" \| "bothReversed"`. Works on `"\n"`-split lines, a `"\r"` stays in the line (CRLF, no final newline round-trip). |
+| `conflictEditor.ts` | CodeMirror part: a state field with the hunks, line colours, a block widget with the actions above each hunk, `hunkChange` / `resolveHunkIn`, `goToConflict` (F7). It is off until `setConflictMode({ on, swapped })`; `FilesView` turns it on for conflicted files (`swapped` during a rebase: git's first section is Theirs for the UI). |
+
+The mock writes marker text into the worktree of its conflicted files (`worktreeTextOf` in `mockConflicts.ts`, diff3 style for
+`ledger-service/src/ledger/posting.rs`); Accept Yours / Theirs and the merge window write the result back to the mock worktree.
+
 ## UI components (`src/components/ui`, `import { ... } from "../../components/ui"`)
 
 Open `http://localhost:1420/#gallery` for a live catalogue of everything below.

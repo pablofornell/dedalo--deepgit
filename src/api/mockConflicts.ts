@@ -7,6 +7,7 @@
  *                    delete/modify, binary)
  *   ledger-service   rebasing: 2 files (modify/modify, add/add), so Yours is stage 3
  */
+import { MergeModel } from "../features/merge/model";
 import type { ConflictEntry, ConflictLabels, ConflictVersions, ExpectedOids, SideStatus } from "./types";
 
 export interface MockStage {
@@ -26,6 +27,8 @@ export interface MockConflict {
   s3?: MockStage;
   /** Line ending of the file in the worktree. */
   eol?: "lf" | "crlf";
+  /** The markers in the worktree file also show the common ancestor (`merge.conflictStyle = diff3`). */
+  diff3?: boolean;
 }
 
 /** What the mock knows about the operation that produced the conflicts (for the labels). */
@@ -102,6 +105,48 @@ export function currentOids(c: MockConflict, rebasing: boolean): ExpectedOids {
     return s ? stageOid(c, s, n) : null;
   };
   return { ours: oid(st.yours), theirs: oid(st.theirs), base: oid(1) };
+}
+
+/** The names git writes after the markers: stage 2 (`<<<<<<<`) and stage 3 (`>>>>>>>`). */
+export interface MarkerLabels {
+  stage2: string;
+  stage3: string;
+}
+
+export function markerLabels(ctx: MockConflictContext | null, rebasing: boolean): MarkerLabels {
+  return { stage2: "HEAD", stage3: rebasing ? (ctx?.replayed ?? "commit") : (ctx?.theirs ?? "theirs") };
+}
+
+/**
+ * The text of the file in the worktree while it is conflicted, like git leaves it: the changes that only one side made
+ * are merged, every real conflict is a `<<<<<<<` block (stage 2 first). A file with a missing side keeps the side that
+ * is left. null for a binary conflict (the mock keeps its fake text).
+ */
+export function worktreeTextOf(c: MockConflict, labels: MarkerLabels): string | null {
+  if (!isTextConflict(c)) return null;
+  const eolOf = (t: string) => (c.eol === "crlf" ? t.replace(/\n/g, "\r\n") : t);
+  if (!c.s2 || !c.s3) return eolOf((c.s2 ?? c.s3)?.text ?? "");
+  const model = new MergeModel(c.s1?.text ?? "", c.s2.text ?? "", c.s3.text ?? "");
+  model.applyNonConflicting("all");
+  const out: string[] = [];
+  let at = 0;
+  for (const ch of model.chunks) {
+    if (ch.type !== "conflict" || model.isResolved(ch)) continue;
+    out.push(...model.result.slice(at, ch.start), `<<<<<<< ${labels.stage2}`, ...model.leftLines.slice(ch.left.start, ch.left.end));
+    if (c.diff3 && c.s1) out.push("||||||| merged common ancestors", ...model.baseLines.slice(ch.base.start, ch.base.end));
+    out.push("=======", ...model.rightLines.slice(ch.right.start, ch.right.end), `>>>>>>> ${labels.stage3}`);
+    at = ch.end;
+  }
+  out.push(...model.result.slice(at));
+  return eolOf(out.join("\n"));
+}
+
+/** The text of the file after "Accept Yours / Theirs": the stage that was kept (null = the file is removed). */
+export function acceptedTextOf(c: MockConflict, stageNo: 2 | 3): string | null {
+  const st = stageOf(c, stageNo);
+  if (!st) return null;
+  if (st.text === undefined) return null;
+  return c.eol === "crlf" ? st.text.replace(/\n/g, "\r\n") : st.text;
 }
 
 export function hasStage(c: MockConflict, n: 2 | 3): boolean {
@@ -256,7 +301,7 @@ CREATE INDEX audit_trail_entry_idx ON audit_trail (entry_id);
 `;
 
 export const LEDGER_CONFLICTS: MockConflict[] = [
-  { path: "src/ledger/posting.rs", s1: { text: POSTING_BASE }, s2: { text: POSTING_UPSTREAM }, s3: { text: POSTING_MINE } },
+  { path: "src/ledger/posting.rs", s1: { text: POSTING_BASE }, s2: { text: POSTING_UPSTREAM }, s3: { text: POSTING_MINE }, diff3: true },
   { path: "migrations/0018_audit_trail.sql", s2: { text: AUDIT_UPSTREAM }, s3: { text: AUDIT_MINE } },
 ];
 

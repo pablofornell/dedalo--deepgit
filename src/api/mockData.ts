@@ -5,7 +5,7 @@
 import type { FileChange, RepoInfo, RepoStateKind, Stash } from "./types";
 import { toFileChange } from "./mockDiff";
 import { initialWorktree } from "./mockFiles";
-import { DOCS_SITE_CONFLICTS, DOCS_SITE_CONTEXT, LEDGER_CONFLICTS, LEDGER_CONTEXT, type MockConflict, type MockConflictContext } from "./mockConflicts";
+import { DOCS_SITE_CONFLICTS, DOCS_SITE_CONTEXT, LEDGER_CONFLICTS, LEDGER_CONTEXT, markerLabels, worktreeTextOf, type MockConflict, type MockConflictContext } from "./mockConflicts";
 
 // ---------------------------------------------------------------- random helpers
 
@@ -493,6 +493,11 @@ export function generateRepo(info: RepoInfo, url: string, sc: Scenario, nowSec: 
   const disk = initialWorktree(shown);
   repo.worktree = disk.files;
   repo.ignored = disk.ignored;
+  // a conflicted file holds the conflict markers, like git leaves it
+  for (const c of repo.conflicts.values()) {
+    const text = worktreeTextOf(c, markerLabels(repo.conflictCtx, repo.state === "rebasing"));
+    if (text !== null) repo.worktree.set(c.path, text);
+  }
   return repo;
 }
 
