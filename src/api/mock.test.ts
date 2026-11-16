@@ -169,6 +169,22 @@ describe("mock backend", () => {
     await expect(call("push", { repoId: ids[2], branch: "main", remote: "team/fork" })).rejects.toMatchObject({ message: expect.stringContaining("does not appear to be a git repository") });
   });
 
+  it("stashes only the selected files when `paths` is given", async () => {
+    const { ids } = await setup();
+    const repoId = ids[0];
+    const before = await call<WorkingTree>("working_tree", { repoId });
+    expect(before.unstaged.length).toBeGreaterThan(1);
+    const [one] = before.unstaged;
+    const saved = await call<OpResult>("stash_save", { repoId, message: "just one", includeUntracked: true, keepIndex: false, paths: [one.path] });
+    expect(saved.ok).toBe(true);
+    const after = await call<WorkingTree>("working_tree", { repoId });
+    expect(after.unstaged.map((f) => f.path)).toEqual(before.unstaged.filter((f) => f.path !== one.path).map((f) => f.path));
+    expect(after.staged).toEqual(before.staged);
+    // nothing among the selected paths: refused, nothing is stashed
+    const none = await call<OpResult>("stash_save", { repoId, paths: ["no/such/file.ts"] });
+    expect(none.ok).toBe(false);
+  });
+
   it("previews a stash: its tracked files, its untracked files and their diffs", async () => {
     const { ids } = await setup();
     const repoId = ids[0]; // api-gateway: one untracked file and two seeded stashes

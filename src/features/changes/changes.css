@@ -1,7 +1,32 @@
 /* Local changes tab (DESIGN.md 5.9, 5.12, 5.13). Only --dg-* tokens. */
 .dg-changes { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .dg-changes-body { flex: 1 1 0; min-height: var(--dg-changes-list-min-height); display: flex; flex-direction: column; }
-.dg-changes-loading { flex: 1; display: grid; place-items: center; color: var(--dg-text-muted); }
+
+/* ---- the two zones: Unstaged on top takes the rest, Staged below has the height of the divider */
+.dg-changes-zone { flex: 1 1 0; min-height: var(--dg-changes-pane-min-height); display: flex; flex-direction: column; }
+.dg-changes-zone.is-staged { flex: none; position: relative; border-top: var(--dg-border-width) solid var(--dg-island-header-border); }
+.dg-changes-zone > .dg-splitter { margin: calc(var(--dg-splitter-hit) / -2) 0; }
+.dg-changes-pane { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
+.dg-changes-pane-head {
+  flex: none; display: flex; align-items: center; gap: var(--dg-space-3); height: calc(var(--dg-file-row-height) + var(--dg-space-3));
+  padding: var(--dg-space-1) var(--dg-space-4) 0 var(--dg-space-5);
+}
+.dg-changes-pane-title { font-size: var(--dg-font-size-medium); font-weight: var(--dg-weight-semibold); letter-spacing: 0.01em; color: var(--dg-text-muted); }
+.dg-changes-pane-title.is-staged { color: var(--dg-success-fg); }
+.dg-changes-pane-actions { display: inline-flex; align-items: center; gap: var(--dg-space-1); }
+.dg-changes-pane-body { position: relative; flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
+/* the empty state keeps the zone's height; it never takes a click (the list below it still draws the band) */
+.dg-changes-pane-empty {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--dg-space-2);
+  padding: 0 var(--dg-space-6); text-align: center; color: var(--dg-text-muted); pointer-events: none; user-select: none;
+}
+.dg-changes-pane-empty-title { font-size: var(--dg-font-size-medium); }
+.dg-changes-pane-empty-hint { font-size: var(--dg-font-size-small); color: var(--dg-text-secondary); }
+/* rubber band: clipped to the visible list, drawn over the rows */
+.dg-changes-marquee-clip { position: absolute; top: 0; left: 0; overflow: hidden; pointer-events: none; z-index: 2; }
+.dg-changes-marquee {
+  position: absolute; box-sizing: border-box; border: 1px solid var(--dg-accent-border); background: var(--dg-accent-wash); border-radius: 2px;
+}
 
 /* ---- focus notice and banners */
 .dg-changes-focus {
@@ -60,7 +85,6 @@
 .dg-changes-repo-branch .dg-icon { color: var(--dg-icon-secondary); flex: none; }
 .dg-changes-repo-branch-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }  /* the "…" needs a block box, not the flex row */
 .dg-changes-repo-counts { display: inline-flex; gap: var(--dg-space-4); flex: none; font-weight: var(--dg-weight-regular); font-size: var(--dg-font-size-small); color: var(--dg-text-secondary); font-variant-numeric: tabular-nums; }
-.dg-changes-count-conflict { color: var(--dg-status-conflict); }
 
 /* section row */
 .dg-changes-section { color: var(--dg-text-muted); }
@@ -86,7 +110,7 @@
 .dg-changes-actions.is-header { display: inline-flex; position: static; padding: 0; background: none; }
 .dg-changes-row:hover .dg-changes-actions { display: inline-flex; }
 /* The box has no fill of its own (an opaque one would hide the hover and selection background of the row); the counts it covers are hidden instead. */
-.dg-changes-row:hover .dg-changes-counts { visibility: hidden; }
+.dg-changes-row:hover .dg-changes-counts, .dg-changes-row:hover .dg-changes-repo-counts { visibility: hidden; }
 .dg-changes-action-danger:hover:not(:disabled) .dg-icon { color: var(--dg-text-error); }
 /* conflicted rows: "Yours", "Theirs", "Merge…" */
 .dg-changes-txtact {

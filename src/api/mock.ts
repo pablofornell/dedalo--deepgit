@@ -1416,16 +1416,20 @@ const handlers: Record<string, Handler> = {
   stash_save: (a, c) => {
     const repo = repoOf(a.repoId);
     const includeUntracked = bool(a.includeUntracked);
-    const staged = bool(a.keepIndex) ? [] : repo.wt.staged;
-    const unstaged = repo.wt.unstaged.filter((f) => f.status !== "untracked" || includeUntracked);
-    if (staged.length + unstaged.length === 0 && !wtDirty(repo)) return notOk("No local changes to save");
+    // `paths` (a file selection) limits what is stashed; without it every change goes
+    const only = Array.isArray(a.paths) && a.paths.length > 0 ? new Set((a.paths as unknown[]).map(String)) : null;
+    const picked = (f: FileChange) => !only || only.has(f.path);
+    const staged = bool(a.keepIndex) ? [] : repo.wt.staged.filter(picked);
+    const unstaged = repo.wt.unstaged.filter((f) => picked(f) && (f.status !== "untracked" || includeUntracked));
+    if (staged.length + unstaged.length === 0 && (only || !wtDirty(repo))) return notOk("No local changes to save");
     const head = repo.byOid.get(repo.head.oid);
     const message = optStr(a.message) || `WIP on ${repo.head.branch ?? "(no branch)"}: ${short(repo.head.oid)} ${head?.subject ?? ""}`;
     repo.stashes.forEach((s) => s.index++);
     repo.stashes.unshift({ index: 0, message, oid: hex40("stash" + Date.now() + Math.random()), base: repo.head.oid, time: Math.floor(Date.now() / 1000), staged, unstaged });
-    if (!bool(a.keepIndex)) repo.wt.staged = [];
+    if (!bool(a.keepIndex)) repo.wt.staged = repo.wt.staged.filter((f) => !staged.includes(f));
     repo.wt.unstaged = repo.wt.unstaged.filter((f) => !unstaged.includes(f));
-    c.git(repo, ["stash", "push", ...(includeUntracked ? ["--include-untracked"] : []), ...(bool(a.keepIndex) ? ["--keep-index"] : []), ...(optStr(a.message) ? ["-m", optStr(a.message) as string] : [])], { stdout: `Saved working directory and index state ${message}\n` });
+    const pathspec = only ? ["--", ...only] : [];
+    c.git(repo, ["stash", "push", ...(includeUntracked ? ["--include-untracked"] : []), ...(bool(a.keepIndex) ? ["--keep-index"] : []), ...(optStr(a.message) ? ["-m", optStr(a.message) as string] : []), ...pathspec], { stdout: `Saved working directory and index state ${message}\n` });
     emitChanged(repo);
     return ok(`Saved working directory and index state ${message}`);
   },

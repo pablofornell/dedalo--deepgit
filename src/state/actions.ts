@@ -21,7 +21,7 @@ import type { CloneOpts, CloneProgress, CloneResult, ConflictSide, ExpectedOids,
 import { joinNames, plural, toast, type ToastAction } from "../components/ui";
 import { beginActivity } from "./activity";
 import { dismissAutoFetchFor } from "./alerts";
-import { confirmAction, showDialog, type PushResult } from "./dialogs";
+import { confirmAction, showDialog, type PushResult, type StashFiles } from "./dialogs";
 import { notifyRepoChanged } from "./events";
 import { openBottomTool } from "./layout";
 import { planPush } from "./pushPlan";
@@ -643,20 +643,24 @@ export async function push(repoIds: RepoIds, opts: PushOptions = {}): Promise<Ba
 
 // ---------------------------------------------------------------- stash and tags
 
-/** Stashes local changes (dialog "stash"). */
-export async function stashSave(repoIds: RepoIds): Promise<BatchResult> {
-  const ids = toIds(repoIds);
-  const r = await showDialog("stash", { repoIds: ids });
+/**
+ * Stashes local changes (dialog "stash"). With `files` (by repo id) only those files are stashed; the repos are the keys.
+ * A file selection that has untracked files stashes them too: Git only takes an untracked path with `-u`.
+ */
+export async function stashSave(repoIds: RepoIds, files?: Record<string, StashFiles>): Promise<BatchResult> {
+  const ids = files ? Object.keys(files) : toIds(repoIds);
+  const r = await showDialog("stash", { repoIds: ids, ...(files ? { files } : {}) });
   if (!r) return emptyResult(true);
   return runBatch({
     verb: "stash changes",
     past: "Stashed changes",
     repoIds: ids,
     skip: (id) => {
+      if (files) return null;
       const s = summary(id);
       return s && s.staged + s.unstaged + (r.includeUntracked ? s.untracked : 0) === 0 ? "no local changes" : null;
     },
-    run: (id) => api.stashSave(id, r.message, r.includeUntracked, r.keepIndex),
+    run: (id) => api.stashSave(id, r.message, files ? r.includeUntracked || (files[id]?.untracked ?? 0) > 0 : r.includeUntracked, r.keepIndex, files?.[id]?.paths),
   });
 }
 

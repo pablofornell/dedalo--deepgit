@@ -673,6 +673,7 @@ pub async fn push(
 
 // ------------------------------------------------------------------ write: stash and tags
 
+/// JS: `{ repoId, message, includeUntracked, keepIndex, paths? }`; with `paths` only those files are stashed.
 #[tauri::command]
 pub async fn stash_save(
     app: AppHandle,
@@ -681,9 +682,17 @@ pub async fn stash_save(
     message: Option<String>,
     include_untracked: bool,
     keep_index: bool,
+    paths: Option<Vec<String>>,
 ) -> Res<OpResult> {
     write(&app, &state, &repo_id, move |g, r| {
-        ops::stash_save(g, r, message.as_deref(), include_untracked, keep_index)
+        ops::stash_save_paths(
+            g,
+            r,
+            message.as_deref(),
+            include_untracked,
+            keep_index,
+            paths.as_deref().unwrap_or(&[]),
+        )
     })
     .await
 }

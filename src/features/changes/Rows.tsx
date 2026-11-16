@@ -4,7 +4,7 @@
  * everything goes through the `RowCtl` the view passes in.
  */
 import { type JSX, Show } from "solid-js";
-import type { FileChange, WorkingTree } from "../../api/types";
+import type { FileChange } from "../../api/types";
 import { Badge, Icon, IconButton, RepoIcon, StatusLetter, fileIconFor, plural, splitPath, statusColorVar, tip } from "../../components/ui";
 import { repoById, summary } from "../../state/workspace";
 import { SECTION_TITLE, type Row, type Section } from "./model";
@@ -37,8 +37,10 @@ export interface RowCtl {
   sectionStage: (row: SectionRow) => void;
   sectionUnstage: (row: SectionRow) => void;
   sectionDiscard: (row: SectionRow) => void;
-  /** Working tree of a repo (counts in the repo row). */
-  tree: (repoId: string) => WorkingTree | undefined;
+  /** Hover buttons of a repo row: they act on the files of the repo in that row's pane. */
+  repoStage: (row: RepoRow) => void;
+  repoUnstage: (row: RepoRow) => void;
+  repoDiscard: (row: RepoRow) => void;
 }
 
 const keep = (e: MouseEvent) => e.preventDefault();
@@ -77,12 +79,13 @@ function Tick(props: { checked: boolean; label: string; onToggle: () => void }):
   );
 }
 
-function Action(props: { icon: "plus" | "minus" | "undo" | "check"; label: string; shortcut?: string; danger?: boolean; onClick: () => void }): JSX.Element {
+export function Action(props: { icon: "plus" | "minus" | "undo" | "check"; label: string; shortcut?: string; danger?: boolean; disabled?: boolean; onClick: () => void }): JSX.Element {
   return (
     <IconButton
       icon={props.icon}
       label={props.label}
       shortcut={props.shortcut}
+      disabled={props.disabled}
       class={props.danger ? "dg-changes-action-danger" : undefined}
       tabIndex={-1}
       onMouseDown={keep}
@@ -141,7 +144,8 @@ const rowAttrs = (row: Row) => ({
 
 export function RepoRowView(props: { row: RepoRow; ctl: RowCtl; open: boolean }): JSX.Element {
   const repo = () => repoById(props.row.repoId);
-  const wt = () => props.ctl.tree(props.row.repoId);
+  const staged = () => props.row.pane === "staged";
+  const name = () => repo()?.name ?? "this repo";
   return (
     <div
       class="dg-changes-row dg-changes-repo"
@@ -165,15 +169,18 @@ export function RepoRowView(props: { row: RepoRow; ctl: RowCtl; open: boolean })
         )}
       </Show>
       <span class="dg-grow" />
-      <span class="dg-changes-repo-counts">
-        <Show when={(wt()?.conflicted.length ?? 0) > 0}>
-          <span class="dg-changes-count-conflict" title="Conflicted files">{plural(wt()?.conflicted.length ?? 0, "conflict")}</span>
-        </Show>
-        <Show when={(wt()?.staged.length ?? 0) > 0}>
-          <span title="Staged files">{wt()?.staged.length} staged</span>
-        </Show>
-        <Show when={(wt()?.unstaged.length ?? 0) > 0}>
-          <span title="Unstaged and untracked files">{wt()?.unstaged.length} unstaged</span>
+      <span class="dg-changes-repo-counts">{plural(props.row.count, "file")}</span>
+      <span class="dg-changes-actions">
+        <Show
+          when={staged()}
+          fallback={
+            <>
+              <Action icon="plus" label={`Stage all in ${name()}`} onClick={() => props.ctl.repoStage(props.row)} />
+              <Action icon="undo" label={`Discard all unstaged changes in ${name()}`} danger onClick={() => props.ctl.repoDiscard(props.row)} />
+            </>
+          }
+        >
+          <Action icon="minus" label={`Unstage all in ${name()}`} onClick={() => props.ctl.repoUnstage(props.row)} />
         </Show>
       </span>
     </div>

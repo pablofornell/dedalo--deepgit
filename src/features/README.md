@@ -7,7 +7,7 @@ Each folder in `src/features/` is one feature with **one root component** (names
 | `titlebar/` | `TitleBar()` | 40 px bar. Keep `{...dragRegion}` on empty areas and `<WindowControls />` at the right. |
 | `sidebar/` | `Sidebar()` | Island content (header + tree). |
 | `log/` | `LogView()` | Log tab content: filter bar, banners, rows. Put header buttons in `<HeaderSlot name="main">`. |
-| `changes/` | `ChangesView()` | "Local changes" tab content. |
+| `changes/` | `ChangesView()` | "Local changes" tab content: two always-visible zones (`PaneList`: Unstaged with Conflicts on top, Staged below, divider `changesStaged`), rubber-band selection (`marquee.ts`), "Stash…" of the selected files (`stashFilesOf`, `actions.stashSave(ids, files)`). |
 | `details/` | `CommitDetails()` | "Changed files" tab of the right column. Reads `selectedCommit()`. Puts its header buttons in `<HeaderSlot name="details">`. |
 | `diff/` | `DiffViewer(props)`, `DiffPanel()` | `DiffPanel` is the "File changes" tab of the right column; `DiffViewer` props are the contract (see file). |
 | `palette/` | `SearchEverywhere()` | Mounted once by `App`; registers its own keys (`Shift Shift`, `Ctrl+K`). |
@@ -95,7 +95,7 @@ await actions.merge([repoId], "origin/main");   // dialog "merge": mode, message
 actions.cloneRepository(url?);                  // dialog "clone" (it runs actions.startClone itself and shows git's progress)
 await actions.rebase(ids, "main"); actions.reset(ids, oid); actions.cherryPick(repoId, [oid]); actions.revert(repoId, oid);
 await actions.fetch(ids); actions.fetchAll(); actions.pull(ids); actions.push(ids);   // push opens the "push" dialog
-actions.stashSave(ids); actions.stashApply(repoId, 0); actions.stashPop(repoId, 0); actions.stashDrop(repoId, 0);
+actions.stashSave(ids); actions.stashSave([], { [repoId]: { paths, count, untracked } }) /* only those files */; actions.stashApply(repoId, 0); actions.stashPop(repoId, 0); actions.stashDrop(repoId, 0);
 actions.tagCreate(ids, oid); actions.tagDelete(ids, "v1.0");
 actions.deleteBranch(ids, name); actions.renameBranch(repoId, name); actions.checkoutRemote(repoId, "origin/x");
 actions.opContinue(ids); actions.opAbort(ids); actions.opSkip(ids);
