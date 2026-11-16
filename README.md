@@ -34,7 +34,8 @@ The backend is written in Rust and runs the `git` command-line program. The inte
 
 ### Local changes and commit
 
-- Staged, unstaged and conflicted files, grouped by repository.
+- Two fixed zones, Unstaged and Staged, that stay on screen when one is empty. Conflicted files are in Unstaged. Files are grouped by repository.
+- Rubber-band (rectangle) selection with auto-scroll, and stash of the selected files only.
 - Conflicts dialog (Accept Yours / Theirs, Merge…) and a three-pane merge window: Yours, Result, Theirs. It can apply the changes that do not collide, merge a conflict word by word, and it handles delete/modify, binary files and the swap of sides in a rebase.
 - Commit, amend, and commit and push.
 - One commit message can go to several repositories at once.

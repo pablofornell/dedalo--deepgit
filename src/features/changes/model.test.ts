@@ -2,8 +2,8 @@
 import { describe, expect, it } from "vitest";
 import type { FileChange, WorkingTree } from "../../api/types";
 import {
-  buildRows, buildTree, commitLabel, fileKey, groupByRepo, nearestSurvivor, rangeKeys, repoKey, rowItems, sectionKey,
-  selectedItems, subjectLength, type Row,
+  buildRows, buildTree, commitLabel, dirKey, fileKey, groupByRepo, nearestSurvivor, paneOfKey, rangeKeys, repoKey, rowItems, sectionKey,
+  selectedItems, stashFilesOf, subjectLength, type Row,
 } from "./model";
 
 const file = (path: string, status: FileChange["status"] = "modified"): FileChange => ({
@@ -50,6 +50,72 @@ describe("buildRows", () => {
     expect(buildRows({ ...base, repos, collapsed: new Set([repoKey("r1")]) }).map((r) => r.kind)).toEqual(["repo"]);
     const rows = buildRows({ ...base, repos, collapsed: new Set([sectionKey("r1", "staged")]) });
     expect(rows.map((r) => r.kind)).toEqual(["repo", "section", "section", "file"]);
+  });
+});
+
+describe("buildRows by pane", () => {
+  const base = { grouped: true, mode: "flat" as const, collapsed: new Set<string>() };
+  const repos = [{ repoId: "r1", wt: wt(["s.ts"], ["u.ts"], ["c.ts"]) }, { repoId: "r2", wt: wt(["t.ts"], []) }];
+
+  it("the work pane has the conflicts section and the unstaged files straight under the repo row", () => {
+    const rows = buildRows({ ...base, repos, pane: "work" });
+    expect(rows.map((r) => r.key)).toEqual([repoKey("r1"), sectionKey("r1", "conflicts"), fileKey("r1", "conflicts", "c.ts"), fileKey("r1", "unstaged", "u.ts")]);
+    const repo = rows[0];
+    expect(repo.kind === "repo" && repo.count).toBe(2);
+  });
+
+  it("the staged pane lists only the repos that have staged files, with their own repo keys", () => {
+    const rows = buildRows({ ...base, repos, pane: "staged" });
+    expect(rows.map((r) => r.key)).toEqual([repoKey("r1", "staged"), fileKey("r1", "staged", "s.ts"), repoKey("r2", "staged"), fileKey("r2", "staged", "t.ts")]);
+    expect(repoKey("r1", "staged")).not.toBe(repoKey("r1", "work"));
+  });
+
+  it("a repo without files in a pane has no row there, and an empty pane has no rows at all", () => {
+    expect(buildRows({ ...base, repos: [repos[1]], pane: "work" })).toEqual([]);
+    expect(buildRows({ ...base, repos: [], pane: "staged" })).toEqual([]);
+  });
+
+  it("collapsing a repo in one pane leaves the other pane alone", () => {
+    const collapsed = new Set([repoKey("r1")]);
+    expect(buildRows({ ...base, repos, collapsed, pane: "work" }).map((r) => r.kind)).toEqual(["repo"]);
+    expect(buildRows({ ...base, repos, collapsed, pane: "staged" }).map((r) => r.kind)).toEqual(["repo", "file", "repo", "file"]);
+  });
+
+  it("a single repo (not grouped) lists the files without a repo row, at depth 0 in tree mode", () => {
+    const rows = buildRows({ grouped: false, mode: "tree", collapsed: new Set(), repos: [repos[0]], pane: "work" });
+    expect(rows.map((r) => r.kind)).toEqual(["section", "file", "file"]);
+    expect(rows[2].depth).toBe(0);
+  });
+
+  it("paneOfKey tells the pane of every kind of key", () => {
+    expect(paneOfKey(fileKey("r1", "staged", "a.ts"))).toBe("staged");
+    expect(paneOfKey(fileKey("r1", "unstaged", "a.ts"))).toBe("work");
+    expect(paneOfKey(fileKey("r1", "conflicts", "a.ts"))).toBe("work");
+    expect(paneOfKey(dirKey("r1", "staged", "src"))).toBe("staged");
+    expect(paneOfKey(sectionKey("r1", "conflicts"))).toBe("work");
+    expect(paneOfKey(repoKey("r1"))).toBe("work");
+    expect(paneOfKey(repoKey("r1", "staged"))).toBe("staged");
+  });
+});
+
+describe("stashFilesOf", () => {
+  const item = (repoId: string, section: "staged" | "unstaged" | "conflicts", f: FileChange) => ({ repoId, section, file: f });
+
+  it("collects paths by repo, counts files and untracked files", () => {
+    const picks = stashFilesOf([item("r1", "unstaged", file("a.ts")), item("r1", "unstaged", file("n.ts", "untracked")), item("r2", "staged", file("b.ts"))]);
+    expect(picks).toEqual({ r1: { paths: ["a.ts", "n.ts"], count: 2, untracked: 1 }, r2: { paths: ["b.ts"], count: 1, untracked: 0 } });
+  });
+
+  it("brings the old path of a rename and counts the rename once", () => {
+    const renamed: FileChange = { ...file("new.ts", "renamed"), oldPath: "old.ts" };
+    expect(stashFilesOf([item("r1", "staged", renamed)])).toEqual({ r1: { paths: ["new.ts", "old.ts"], count: 1, untracked: 0 } });
+  });
+
+  it("leaves conflicted files out and counts a file that is in both panes once", () => {
+    const picks = stashFilesOf([item("r1", "conflicts", file("c.ts", "conflicted")), item("r1", "staged", file("a.ts")), item("r1", "unstaged", file("a.ts"))]);
+    expect(picks).toEqual({ r1: { paths: ["a.ts"], count: 1, untracked: 0 } });
+    expect(stashFilesOf([item("r1", "conflicts", file("c.ts", "conflicted"))])).toEqual({});
+    expect(stashFilesOf([])).toEqual({});
   });
 });
 

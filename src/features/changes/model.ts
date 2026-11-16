@@ -4,11 +4,19 @@
  * message helpers. No Solid, no DOM: unit tested in `model.test.ts`.
  */
 import type { FileChange, WorkingTree } from "../../api/types";
+import type { StashFiles } from "../../state/dialogs";
 
 export type Section = "conflicts" | "staged" | "unstaged";
 export type ViewMode = "tree" | "flat";
 
 export const SECTIONS: readonly Section[] = ["conflicts", "staged", "unstaged"];
+
+/** The two zones of the view: "work" (conflicts and unstaged, on top) and "staged" (below). Both are always on screen. */
+export type Pane = "work" | "staged";
+export const PANES: readonly Pane[] = ["work", "staged"];
+export const PANE_SECTIONS: Record<Pane, readonly Section[]> = { work: ["conflicts", "unstaged"], staged: ["staged"] };
+export const PANE_TITLE: Record<Pane, string> = { work: "Unstaged", staged: "Staged" };
+export const paneOfSection = (s: Section): Pane => (s === "staged" ? "staged" : "work");
 export const SECTION_TITLE: Record<Section, string> = { conflicts: "Conflicts", staged: "Staged", unstaged: "Unstaged" };
 
 /** Soft limit of the commit subject line (DESIGN.md 5.12). */
@@ -22,14 +30,15 @@ export interface FileItem {
 }
 
 export type Row =
-  | { kind: "repo"; key: string; repoId: string; depth: 0 }
+  | { kind: "repo"; key: string; repoId: string; depth: 0; /** Files of the repo in this row's pane (all sections without a pane). */ count: number; pane?: Pane }
   | { kind: "section"; key: string; repoId: string; section: Section; depth: number; count: number; open: boolean }
   | { kind: "dir"; key: string; repoId: string; section: Section; depth: number; path: string; name: string; files: FileChange[]; open: boolean }
   | { kind: "file"; key: string; repoId: string; section: Section; depth: number; file: FileChange; tree: boolean };
 
 // ---------------------------------------------------------------- keys
 
-export const repoKey = (repoId: string): string => `r:${repoId}`;
+/** The repo row of the staged pane has its own key: the same repo appears once in each pane. */
+export const repoKey = (repoId: string, pane: Pane = "work"): string => (pane === "staged" ? `r:${repoId}:staged` : `r:${repoId}`);
 export const sectionKey = (repoId: string, s: Section): string => `s:${repoId}:${s}`;
 export const dirKey = (repoId: string, s: Section, path: string): string => `d:${repoId}:${s}:${path}`;
 export const fileKey = (repoId: string, s: Section, path: string): string => `f:${repoId}:${s}:${path}`;
@@ -123,6 +132,12 @@ export interface BuildInput {
   mode: ViewMode;
   /** Keys (`repoKey`, `sectionKey`, `dirKey`) of collapsed rows. */
   collapsed: ReadonlySet<string>;
+  /**
+   * Build the rows of one pane only: its sections, and a repo row only for repos that have files in it. The
+   * Unstaged / Staged sections get no row of their own (the pane header says it); Conflicts keeps its row.
+   * Without a pane every section is built.
+   */
+  pane?: Pane;
 }
 
 /** Files of a section of a working tree. */
@@ -133,38 +148,49 @@ export function sectionFiles(wt: WorkingTree, s: Section): FileChange[] {
 /** Flat list of every visible row, top to bottom. Sections without files have no row. */
 export function buildRows(input: BuildInput): Row[] {
   const out: Row[] = [];
-  const base = input.grouped ? 1 : 0;
+  const pane = input.pane;
+  const sections = pane ? PANE_SECTIONS[pane] : SECTIONS;
+  // a pane lists files straight under the repo row; only Conflicts keeps a header
+  const headed = (section: Section): boolean => !pane || section === "conflicts";
   for (const { repoId, wt } of input.repos) {
+    const count = sections.reduce((n, section) => n + sectionFiles(wt, section).length, 0);
+    if (pane && count === 0) continue;
+    const base = input.grouped ? 1 : 0;
     if (input.grouped) {
-      out.push({ kind: "repo", key: repoKey(repoId), repoId, depth: 0 });
-      if (input.collapsed.has(repoKey(repoId))) continue;
+      const key = repoKey(repoId, pane);
+      out.push({ kind: "repo", key, repoId, depth: 0, count, pane });
+      if (input.collapsed.has(key)) continue;
     }
-    for (const section of SECTIONS) {
+    for (const section of sections) {
       const files = sectionFiles(wt, section);
       if (files.length === 0) continue;
       const sKey = sectionKey(repoId, section);
-      const open = !input.collapsed.has(sKey);
-      out.push({ kind: "section", key: sKey, repoId, section, depth: base, count: files.length, open });
-      if (!open) continue;
+      let depth = base;
+      if (headed(section)) {
+        const open = !input.collapsed.has(sKey);
+        out.push({ kind: "section", key: sKey, repoId, section, depth, count: files.length, open });
+        if (!open) continue;
+        depth++;
+      }
       if (input.mode === "flat") {
         for (const file of sortFiles(files)) {
-          out.push({ kind: "file", key: fileKey(repoId, section, file.path), repoId, section, depth: base + 1, file, tree: false });
+          out.push({ kind: "file", key: fileKey(repoId, section, file.path), repoId, section, depth, file, tree: false });
         }
         continue;
       }
-      const walk = (nodes: readonly TreeNode[], depth: number): void => {
+      const walk = (nodes: readonly TreeNode[], d: number): void => {
         for (const n of nodes) {
           if (n.kind === "file") {
-            out.push({ kind: "file", key: fileKey(repoId, section, n.file.path), repoId, section, depth, file: n.file, tree: true });
+            out.push({ kind: "file", key: fileKey(repoId, section, n.file.path), repoId, section, depth: d, file: n.file, tree: true });
             continue;
           }
           const key = dirKey(repoId, section, n.path);
           const dirOpen = !input.collapsed.has(key);
-          out.push({ kind: "dir", key, repoId, section, depth, path: n.path, name: n.name, files: n.files, open: dirOpen });
-          if (dirOpen) walk(n.children, depth + 1);
+          out.push({ kind: "dir", key, repoId, section, depth: d, path: n.path, name: n.name, files: n.files, open: dirOpen });
+          if (dirOpen) walk(n.children, d + 1);
         }
       };
-      walk(buildTree(files), base + 1);
+      walk(buildTree(files), depth);
     }
   }
   return out;
@@ -189,6 +215,25 @@ export function selectedItems(rows: readonly Row[], selected: ReadonlySet<string
       seen.add(k);
       out.push(it);
     }
+  }
+  return out;
+}
+
+/**
+ * Stash selection by repo. Conflicted files are left out (a path with unmerged entries cannot be stashed) and a
+ * file that is in both panes counts once.
+ */
+export function stashFilesOf(items: readonly FileItem[]): Record<string, StashFiles> {
+  const out: Record<string, StashFiles> = {};
+  const seen = new Set<string>();
+  for (const { repoId, section, file } of items) {
+    const id = `${repoId}\0${file.path}`;
+    if (section === "conflicts" || seen.has(id)) continue;
+    seen.add(id);
+    const pick = (out[repoId] ??= { paths: [], count: 0, untracked: 0 });
+    pick.count++;
+    if (file.status === "untracked") pick.untracked++;
+    for (const p of [file.path, file.oldPath]) if (p && !pick.paths.includes(p)) pick.paths.push(p);
   }
   return out;
 }
@@ -228,6 +273,9 @@ export function nearestSurvivor(oldKeys: readonly string[], lostKey: string, ali
   for (let k = i - 1; k >= 0; k--) if (ok(oldKeys[k])) return oldKeys[k];
   return null;
 }
+
+/** Pane a row key belongs to (`f:<repo>:<section>:...`, `d:`, `s:` and the repo rows of `repoKey`). */
+export const paneOfKey = (key: string): Pane => (key.split(":")[2] === "staged" ? "staged" : "work");
 
 /** Repo id inside a row key (`f:<repoId>:<section>:<path>`). */
 export const repoIdOfKey = (key: string): string => key.split(":")[1] ?? "";

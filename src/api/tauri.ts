@@ -199,8 +199,9 @@ export const push = (repoId: string, opts: { remote?: string | null; branch?: st
     repoId, remote: opts.remote ?? null, branch: opts.branch ?? null,
     force: opts.force ?? false, setUpstream: opts.setUpstream ?? false, tags: opts.tags ?? false,
   });
-export const stashSave = (repoId: string, message: string | null = null, includeUntracked = false, keepIndex = false) =>
-  invoke<OpResult>("stash_save", { repoId, message, includeUntracked, keepIndex });
+/** `paths` limits the stash to those files (repo-relative); without it every change is stashed. */
+export const stashSave = (repoId: string, message: string | null = null, includeUntracked = false, keepIndex = false, paths?: string[]) =>
+  invoke<OpResult>("stash_save", { repoId, message, includeUntracked, keepIndex, ...(paths && paths.length > 0 ? { paths } : {}) });
 /** `oid` is the stash the user sees; the backend refuses to act when the stash list has moved on. */
 export const stashApply = (repoId: string, index: number, oid?: string) =>
   invoke<OpResult>("stash_apply", { repoId, index, ...(oid === undefined ? {} : { oid }) });

@@ -858,17 +858,36 @@ pub fn stash_save(
     include_untracked: bool,
     keep_index: bool,
 ) -> Result<OpResult, GitError> {
-    let mut args = vec!["stash", "push"];
+    stash_save_paths(git, repo, message, include_untracked, keep_index, &[])
+}
+
+/// `git stash push [-u] [--keep-index] [-m message] [-- paths]`. With `paths` only those files (literal
+/// pathspecs, a directory counts as everything below it) go into the stash; an empty list stashes everything.
+pub fn stash_save_paths(
+    git: &Git,
+    repo: &RepoInfo,
+    message: Option<&str>,
+    include_untracked: bool,
+    keep_index: bool,
+    paths: &[String],
+) -> Result<OpResult, GitError> {
+    for p in paths {
+        check_rel(p)?;
+    }
+    let mut head = vec!["stash", "push"];
     if include_untracked {
-        args.push("-u");
+        head.push("-u");
     }
     if keep_index {
-        args.push("--keep-index");
+        head.push("--keep-index");
     }
     if let Some(m) = message.filter(|m| !m.is_empty()) {
-        args.extend(["-m", m]);
+        head.extend(["-m", m]);
     }
-    op(git, repo, &args, None, false)
+    if paths.is_empty() {
+        return op(git, repo, &head, None, false);
+    }
+    op(git, repo, &with_paths(&head, paths), None, false)
 }
 
 fn stash_op(

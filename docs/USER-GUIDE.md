@@ -325,11 +325,14 @@ Click a repository in the sidebar to show only its changes; a note at the top sa
 
 ### Files
 
-Each group has up to three sections:
+The file area has two zones that are always on the screen, even when one of them is empty:
 
-- **Conflicts**: files with merge conflicts.
-- **Staged**: changes that go into the next commit.
-- **Unstaged**: changed files and new (untracked) files.
+- **Unstaged** (top): changed files and new (untracked) files. Files with merge conflicts are in this zone too, under a **Conflicts** heading.
+- **Staged** (bottom): changes that go into the next commit.
+
+Each zone has a header with its name, the number of files and its buttons. An empty zone says **No unstaged changes** or **Nothing staged**, so the layout never jumps when you stage or unstage files.
+Drag the bar between the zones to change their heights. DeepGit remembers the heights. Double-click the bar to share the space equally again.
+In a project with several repositories, each zone lists the repositories that have files in it.
 
 Use the two buttons above the list to group files by folder or to show a flat list.
 
@@ -337,13 +340,25 @@ Status letters: `A` added, `M` modified, `D` deleted, `R` renamed, `C` copied, `
 
 ### Stage and unstage
 
-- Click the checkbox at the left of a file, folder, section or repository to stage or unstage it.
+- Click the checkbox at the left of a file or folder to stage or unstage it.
 - Select files and press `Space` to stage or unstage them.
-- Click the **+** button of a section, or press `Ctrl+Alt+A`, to stage all changes.
-- Click the **−** button of the **Staged** section to unstage all.
+- Click the **+** button in the header of the **Unstaged** zone, or press `Ctrl+Alt+A`, to stage all changes.
+- Click the **−** button in the header of the **Staged** zone to unstage all.
+- In a project with several repositories, point at a repository row to stage, unstage or discard only the files of that repository in the zone.
 - Select a file to see its diff in the **File changes** tab of the right column. Press `Enter` or double-click a file to show the diff.
-- Use `Ctrl`+click, `Shift`+click, `Ctrl+A` and `Shift+↑` / `Shift+↓` to select several files.
+- Use `Ctrl`+click, `Shift`+click, `Ctrl+A` and `Shift+↑` / `Shift+↓` to select several files. `Ctrl+A` selects the files of the zone that has the keyboard. `↑` and `↓` move from one zone to the other.
 - Use `←` and `→` to collapse and expand folders.
+
+#### Select with a rectangle
+
+Press the left mouse button on a row or on empty space in a zone, and drag. A rectangle follows the pointer and selects every row that it touches, like in a file manager.
+
+- Without a key, the rectangle replaces the selection.
+- With `Shift`, the rows in the rectangle are added to the selection.
+- With `Ctrl`, the rows in the rectangle change state: selected rows become unselected and the other way round.
+- Drag to the top or the bottom edge of the zone to scroll. The nearer the pointer is to the edge (or beyond it), the faster the list scrolls.
+- A click on empty space clears the selection. A click without movement on a row works as before. The checkboxes, the row buttons and the right button are not affected.
+- The rectangle stays in one zone. To select files in both zones, use `Ctrl`+click.
 
 To stage only a part of a file, use the **Stage** button on a hunk in the **File changes** tab. See [section 4](#stage-unstage-and-discard-hunks).
 
@@ -364,6 +379,17 @@ Select several files first to add them together. The item is not there for a rep
 - Choose where the line goes: the `.gitignore` at the root of the repository (shared with others), or `.git/info/exclude` (only on your computer).
 - DeepGit adds the line at the end of the file and creates the file when it does not exist. It does not stage or commit. Commit the `.gitignore` when you are ready.
 - Git ignores only untracked files. When a pattern matches tracked files, the dialog says so. DeepGit does not untrack them.
+
+### Stash selected files
+
+Select files, folders or the rows of a repository, and click **Stash N files…** next to the commit box, or right-click and choose **Stash file…** / **Stash N files…**.
+With no selection the button reads **Stash changes** and stashes everything, as before (see [Stash](#8-stash)).
+
+- The dialog asks for a message (optional) and has **Keep index**.
+- Only the selected files go into the stash, with all their changes (staged and unstaged). Untracked files in the selection are included.
+- A renamed file brings its old path, so the deletion does not stay behind.
+- Conflicted files cannot be stashed. They are left out of the selection; the button is off when only conflicted files are selected.
+- In a multi-repo project, the files of each repository go into a stash of that repository.
 
 ### Commit
 
@@ -687,6 +713,7 @@ The current change is the one under the cursor in the Result, or the one you wen
 A stash saves your local changes and cleans the working tree.
 
 - To stash, press `Ctrl+Alt+Z`, click **Stash changes** in the **Local changes** tab, or use **Stash changes…** in a repository menu.
+- To stash only some files, select them in the **Local changes** tab first. See [Stash selected files](#stash-selected-files).
 - The dialog has **Include untracked files** and **Keep index**.
 - In multi-repo projects, the palette action **Stash changes in all repositories…** stashes all repositories.
 - Stashes appear in the sidebar under **Stashes** in each repository. The **Local changes** tab shows the number of stashes.
@@ -920,12 +947,13 @@ While a menu, popup or dialog is open, most shortcuts do not work.
 
 | Key | Action |
 |---|---|
-| `↑` `↓` `PgUp` `PgDn` `Home` `End` | Move in the file list |
+| `↑` `↓` `PgUp` `PgDn` `Home` `End` | Move in the file lists (from the last row of Unstaged into Staged) |
+| Drag on a row or on empty space | Select with a rectangle (`Shift` adds, `Ctrl` toggles) |
 | `←` `→` | Collapse or expand a folder, section or repository |
 | `Space` | Stage or unstage the selected files |
 | `Delete` | Discard the selected files (asks first) |
 | `Enter` | Show the diff of the file |
-| `Ctrl+A` | Select all files |
+| `Ctrl+A` | Select all files of the zone (Unstaged or Staged) |
 | `Ctrl+Alt+A` | Stage all changes |
 | `Ctrl+M` | Focus the commit message |
 | `Ctrl+Enter` | Commit (also works in the message box) |

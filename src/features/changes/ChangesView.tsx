@@ -7,7 +7,7 @@ import { For, type JSX, Show, createEffect, createMemo, createResource, createSi
 import * as api from "../../api/tauri";
 import type { RepoStateKind, WorkingTree } from "../../api/types";
 import {
-  Button, EmptyState, HeaderSlot, Icon, IconButton, SegmentedControl, Spinner, VirtualList, copyText, joinRepoPath, loadSplitSize, openContextMenu, plural,
+  Button, HeaderSlot, Icon, IconButton, SegmentedControl, Splitter, copyText, joinRepoPath, loadSplitSize, openContextMenu, plural,
   type MenuItem, type VirtualListApi,
 } from "../../components/ui";
 import * as actions from "../../state/actions";
@@ -21,12 +21,14 @@ import { changesRepoId, changesScopeRepos, mainTab, selectFile, selectedFile, se
 import { isRepoFilterActive, projectRepos, repoById, summary } from "../../state/workspace";
 import { CommitBox, DEFAULT_HEIGHT, type CommitTarget } from "./CommitBox";
 import {
-  buildRows, isSelectableKey, nearestSurvivor, rangeKeys, repoIdOfKey, rowItems, sectionFiles, selectedItems,
-  type FileItem, type Row, type Section, type ViewMode,
+  PANES, PANE_TITLE, buildRows, isSelectableKey, nearestSurvivor, paneOfKey, rangeKeys, repoIdOfKey, rowItems, sectionFiles, selectedItems, stashFilesOf,
+  type FileItem, type Pane, type Row, type Section, type ViewMode,
 } from "./model";
-import { cssPx, isCompact } from "./layout";
+import { cssPx, isCompact, stagedHeight } from "./layout";
+import { combineSelection, type MarqueeMode } from "./marquee";
 import { discardItems, discardable, stageItems, toggleStage, unstageItems } from "./ops";
-import { DirRowView, FileRowView, RepoRowView, SectionRowView, type DirRow, type FileRow, type RowCtl, type SectionRow } from "./Rows";
+import { PaneList, type MarqueeHandlers } from "./PaneList";
+import { Action, DirRowView, FileRowView, RepoRowView, SectionRowView, type DirRow, type FileRow, type RepoRow, type RowCtl, type SectionRow } from "./Rows";
 import "./changes.css";
 
 const rowH = (): number => cssPx("--dg-file-row-height", 24);
@@ -91,16 +93,28 @@ export function ChangesView(): JSX.Element {
   const grouped = () => projectRepos().length > 1;
   const [collapsed, setCollapsed] = createSignal<ReadonlySet<string>>(new Set<string>());
 
-  const rows = createMemo<Row[]>(() =>
-    buildRows({
-      repos: shown().map((r) => ({ repoId: r.id, wt: trees()[r.id] })),
-      grouped: grouped(),
-      mode: mode(),
-      collapsed: collapsed(),
-    }),
-  );
+  /** Rows of one pane: the Unstaged zone (with Conflicts) and the Staged zone each list the repos that have files in it. */
+  const paneRows = (pane: Pane) =>
+    createMemo<Row[]>(() =>
+      buildRows({
+        repos: scope().flatMap((r) => (trees()[r.id] ? [{ repoId: r.id, wt: trees()[r.id] }] : [])),
+        grouped: grouped(),
+        mode: mode(),
+        collapsed: collapsed(),
+        pane,
+      }),
+    );
+  const paneRowsOf: Record<Pane, () => Row[]> = { work: paneRows("work"), staged: paneRows("staged") };
+  /** Both panes, top to bottom: the order the cursor and the range selection follow. */
+  const rows = createMemo<Row[]>(() => [...paneRowsOf.work(), ...paneRowsOf.staged()]);
   const loadedAll = () => scopeIds().every((id) => trees()[id] || errors()[id]);
   const rowIndex = createMemo(() => new Map(rows().map((r, i) => [r.key, i])));
+  /** Index of every row inside its own pane (what the pane's list scrolls to). */
+  const paneIndex = createMemo(() => new Map(PANES.flatMap((p) => paneRowsOf[p]().map((r, i): [string, number] => [r.key, i]))));
+  const paneCount = (pane: Pane): number => scope().reduce((n, r) => {
+    const wt = trees()[r.id];
+    return wt ? n + (pane === "staged" ? wt.staged.length : wt.unstaged.length + wt.conflicted.length) : n;
+  }, 0);
 
   const toggleCollapsed = (key: string) =>
     setCollapsed((c) => {
@@ -114,7 +128,14 @@ export function ChangesView(): JSX.Element {
   const [selected, setSelected] = createSignal<ReadonlySet<string>>(new Set<string>());
   const [cursor, setCursor] = createSignal<string | null>(null);
   const [anchor, setAnchor] = createSignal<string | null>(null);
-  let listApi: VirtualListApi | undefined;
+  const lists: Partial<Record<Pane, VirtualListApi>> = {};
+  /** The pane whose list has the keyboard focus. */
+  const focusedPane = (): Pane | null => PANES.find((p) => !!lists[p] && lists[p]?.element() === document.activeElement) ?? null;
+  /** A range grows inside one pane: the anchor of another pane starts a new selection instead. */
+  const inAnchorPane = (key: string): boolean => {
+    const a = anchor();
+    return !!a && paneOfKey(a) === paneOfKey(key);
+  };
 
   const items = createMemo(() => selectedItems(rows(), selected()));
   const rowByKey = (key: string): Row | undefined => rows()[rowIndex().get(key) ?? -1];
@@ -145,7 +166,7 @@ export function ChangesView(): JSX.Element {
       return;
     }
     const additive = e.ctrlKey || e.metaKey;
-    if (e.shiftKey && anchor()) {
+    if (e.shiftKey && inAnchorPane(row.key)) {
       const range = rangeKeys(rows(), anchor() as string, row.key);
       setSelected(new Set<string>(additive ? [...selected(), ...range] : range));
       setCursor(row.key);
@@ -166,8 +187,11 @@ export function ChangesView(): JSX.Element {
     if (rs.length === 0) return;
     const i = Math.max(0, Math.min(rs.length - 1, index));
     const row = rs[i];
-    listApi?.scrollToIndex(i, "auto");
-    if (extend && anchor() && isSelectableKey(row.key)) {
+    const pane = paneOfKey(row.key);
+    lists[pane]?.scrollToIndex(paneIndex().get(row.key) ?? 0, "auto");
+    // the cursor walked into the other zone: the keyboard follows it
+    if (focusedPane() && focusedPane() !== pane) lists[pane]?.focus();
+    if (extend && inAnchorPane(row.key) && isSelectableKey(row.key)) {
       setSelected(new Set(rangeKeys(rs, anchor() as string, row.key)));
       setCursor(row.key);
     } else if (isSelectableKey(row.key)) {
@@ -185,7 +209,7 @@ export function ChangesView(): JSX.Element {
     const rs = rows();
     if (rs.length === 0) return;
     const cur = cursorIndex();
-    const page = Math.max(1, Math.floor((listApi?.element()?.clientHeight ?? 0) / rowH()) - 1);
+    const page = Math.max(1, Math.floor((lists[focusedPane() ?? "work"]?.element()?.clientHeight ?? 0) / rowH()) - 1);
     const go = (to: number) => {
       e.preventDefault();
       moveTo(to, e.shiftKey);
@@ -221,7 +245,10 @@ export function ChangesView(): JSX.Element {
       if (kept.length !== sel.size || cursorLost) {
         if (kept.length === 0 && c !== null && sel.size > 0) {
           const repoId = repoIdOfKey(c);
-          const next = nearestSurvivor(prev.map((r) => r.key), c, alive, (k) => k.startsWith("f:") && repoIdOfKey(k) === repoId);
+          // a staged file leaves its zone: prefer the neighbour in the same zone, then any file of the repo
+          const oldKeys = prev.map((r) => r.key);
+          const inRepo = (k: string) => k.startsWith("f:") && repoIdOfKey(k) === repoId;
+          const next = nearestSurvivor(oldKeys, c, alive, (k) => inRepo(k) && paneOfKey(k) === paneOfKey(c)) ?? nearestSurvivor(oldKeys, c, alive, inRepo);
           const row = next ? cur.find((r) => r.key === next) : undefined;
           if (row) selectOnly(row);
           else {
@@ -254,6 +281,8 @@ export function ChangesView(): JSX.Element {
     const wt = trees()[repoId];
     return wt ? sectionFiles(wt, section).map((file) => ({ repoId, section, file })) : [];
   };
+  /** What "Stage all" stages in a repo: the unstaged files and, as "mark resolved", the conflicted ones. */
+  const repoUnstaged = (repoId: string): FileItem[] => [...allItems(repoId, "unstaged"), ...allItems(repoId, "conflicts")];
   /** Rows an action applies to: the selection when the row is in it, otherwise the row alone. */
   const targets = (row: Row): FileItem[] => (selected().has(row.key) ? items() : rowItems(row));
 
@@ -284,6 +313,9 @@ export function ChangesView(): JSX.Element {
     }
     return [...refs.values()];
   };
+
+  /** Files in a "Stash…" selection. */
+  const pickCount = (picks: ReturnType<typeof stashFilesOf>): number => Object.values(picks).reduce((n, p) => n + p.count, 0);
 
   const rowMenu = (row: Row, e: MouseEvent): void => {
     e.preventDefault();
@@ -316,6 +348,15 @@ export function ChangesView(): JSX.Element {
         disabled: dis.length === 0,
         tooltip: dis.length === 0 ? "Only unstaged and untracked files can be discarded. Unstage staged files first." : undefined,
         onSelect: () => void discardItems(dis),
+      });
+      const picks = stashFilesOf(list);
+      const stashN = pickCount(picks);
+      menu.push({
+        label: stashN > 1 ? `Stash ${stashN} files…` : "Stash file…",
+        icon: "stashPush",
+        disabled: stashN === 0,
+        tooltip: stashN === 0 ? "Conflicted files cannot be stashed. Resolve them first." : undefined,
+        onSelect: () => void actions.stashSave([], picks),
       });
       menu.push({ separator: true });
       menu.push({ label: list.length > 1 ? "Copy paths" : "Copy path", icon: "copy", onSelect: () => void copyText(pathsText(list, false)) });
@@ -367,13 +408,45 @@ export function ChangesView(): JSX.Element {
     sectionStage: (row: SectionRow) => void stageItems(allItems(row.repoId, row.section)),
     sectionUnstage: (row: SectionRow) => void unstageItems(allItems(row.repoId, row.section)),
     sectionDiscard: (row: SectionRow) => void discardItems(allItems(row.repoId, row.section)),
-    tree: (id) => trees()[id],
+    repoStage: (row: RepoRow) => void stageItems(repoUnstaged(row.repoId)),
+    repoUnstage: (row: RepoRow) => void unstageItems(allItems(row.repoId, "staged")),
+    repoDiscard: (row: RepoRow) => void discardItems(allItems(row.repoId, "unstaged")),
   };
+
+  // ------------------------------------------------------------ rubber-band selection
+
+  let bandBase: ReadonlySet<string> = new Set<string>();
+  let bandMode: MarqueeMode = "replace";
+  /** What a band drawn in `pane` does to the selection (the pointer handling is in `PaneList`). */
+  const marqueeOf = (pane: Pane): MarqueeHandlers => ({
+    begin: (mode) => {
+      bandMode = mode;
+      bandBase = mode === "replace" ? new Set<string>() : selected();
+    },
+    update: (indexes) => {
+      const list = paneRowsOf[pane]();
+      const keys = indexes.map((i) => list[i]?.key).filter((k): k is string => !!k && isSelectableKey(k));
+      setSelected(combineSelection(bandBase, keys, bandMode));
+      if (keys.length > 0) {
+        if (!anchor() || bandMode === "replace") setAnchor(keys[0]);
+        setCursor(keys[keys.length - 1]);
+      }
+    },
+    end: () => {
+      // like a click on one file: a single file shows its diff
+      const only = [...selected()];
+      if (only.length !== 1) return;
+      const row = rowByKey(only[0]);
+      if (row) showDiff(row);
+    },
+    clickEmpty: (mode) => {
+      if (mode === "replace") setSelected(new Set<string>());
+    },
+  });
 
   // ------------------------------------------------------------ keyboard
 
-  let listEl: HTMLElement | undefined;
-  const listFocused = () => active() && !!listEl && document.activeElement === listEl;
+  const listFocused = () => active() && focusedPane() !== null;
   const offs = [
     register("changes.toggleStage", "Space", () => {
       const list = items();
@@ -391,10 +464,11 @@ export function ChangesView(): JSX.Element {
       else toggleCollapsed(row.key);
     }, { title: "Show the diff of the file", group: "Local changes", when: listFocused }),
     register("changes.selectAll", "Ctrl+A", () => {
-      setSelected(new Set<string>(rows().filter((r) => r.kind === "file").map((r) => r.key)));
-    }, { title: "Select all files", group: "Local changes", when: listFocused }),
+      // the files of the zone that has the keyboard
+      setSelected(new Set<string>(paneRowsOf[focusedPane() ?? "work"]().filter((r) => r.kind === "file").map((r) => r.key)));
+    }, { title: "Select all files of the list", group: "Local changes", when: listFocused }),
     register("changes.stageAll", "Ctrl+Alt+A", () => {
-      const all = shown().flatMap((r) => [...allItems(r.id, "unstaged"), ...allItems(r.id, "conflicts")]);
+      const all = shown().flatMap((r) => repoUnstaged(r.id));
       if (all.length) void stageItems(all);
     }, { title: "Stage all changes", group: "Local changes", when: active }),
   ];
@@ -404,6 +478,10 @@ export function ChangesView(): JSX.Element {
 
   const opRepos = createMemo(() => scope().filter((r) => !!OP_LABEL[summary(r.id)?.state ?? "clean"]));
   const stashIds = () => shown().map((r) => r.id);
+  /** "Stash" acts on the selected files when there are any, else on every change. */
+  const stashSelected = () => items().length > 0;
+  const stashPicks = createMemo(() => stashFilesOf(items()));
+  const selectedStashCount = () => pickCount(stashPicks());
   const stashTotal = () => scope().reduce((n, r) => n + (summary(r.id)?.stashCount ?? 0), 0);
 
   const abort = async (id: string): Promise<void> => {
@@ -437,7 +515,18 @@ export function ChangesView(): JSX.Element {
   /** Height of the rows above the list (focus notice, banners). */
   const chromeH = () => (root ? Array.from(root.children).reduce((n, el) => n + (el.classList.contains("dg-changes-focus") || el.classList.contains("dg-changes-banners") ? (el as HTMLElement).offsetHeight : 0), 0) : 0);
   const maxCommit = () => Math.max(commitMin(), (root?.clientHeight ?? 900) - chromeH() - listMin());
-  const measure = () => setCompact(root ? isCompact(root.clientHeight - chromeH(), listMin(), commitMin()) : false);
+
+  // The two zones of the file area are always there. The Staged zone has a height of its own (the divider, remembered);
+  // the Unstaged zone takes the rest. Until the user drags the divider the two share the area.
+  const [bodyH, setBodyH] = createSignal(0);
+  const [stagedPref, setStagedPref] = createSignal(loadSplitSize("changesStaged", Number.NaN));
+  const paneMin = () => cssPx("--dg-changes-pane-min-height", 76);
+  const stagedH = () => stagedHeight(bodyH(), stagedPref(), paneMin());
+
+  const measure = () => {
+    setCompact(root ? isCompact(root.clientHeight - chromeH(), listMin(), commitMin()) : false);
+    setBodyH(bodyEl?.clientHeight ?? 0);
+  };
   onMount(() => {
     if (!root) return;
     measure();
@@ -469,6 +558,78 @@ export function ChangesView(): JSX.Element {
     const n = scope().length;
     return n === 1 ? `${scope()[0].name} has no uncommitted changes.` : `All ${n} repositories have no uncommitted changes.`;
   };
+
+  // ------------------------------------------------------------ the two zones
+
+  const clean = () => loadedAll() && rows().length === 0;
+  const unstagedAll = (): FileItem[] => scope().flatMap((r) => repoUnstaged(r.id));
+  const discardAll = (): FileItem[] => scope().flatMap((r) => allItems(r.id, "unstaged"));
+  const stagedAll = (): FileItem[] => scope().flatMap((r) => allItems(r.id, "staged"));
+
+  const renderRow = (i: number, pane: Pane): JSX.Element => {
+    const row = createMemo(() => paneRowsOf[pane]()[i]);
+    const as = <K extends Row["kind"]>(kind: K) => (): Extract<Row, { kind: K }> | undefined => {
+      const r = row();
+      return r?.kind === kind ? (r as Extract<Row, { kind: K }>) : undefined;
+    };
+    const repoRow = as("repo");
+    const sectionRow = as("section");
+    const dirRow = as("dir");
+    const fileRow = as("file");
+    return (
+      <>
+        <Show when={repoRow()}>{(r) => <RepoRowView row={r()} ctl={ctl} open={!collapsed().has(r().key)} />}</Show>
+        <Show when={sectionRow()}>{(r) => <SectionRowView row={r()} ctl={ctl} />}</Show>
+        <Show when={dirRow()}>{(r) => <DirRowView row={r() as DirRow} ctl={ctl} />}</Show>
+        <Show when={fileRow()}>{(r) => <FileRowView row={r() as FileRow} ctl={ctl} />}</Show>
+      </>
+    );
+  };
+
+  const renderPane = (pane: Pane): JSX.Element => (
+    <PaneList
+      pane={pane}
+      title={PANE_TITLE[pane]}
+      count={paneCount(pane)}
+      tone={pane === "staged" ? (paneCount(pane) > 0 ? "success" : "neutral") : (scope().some((r) => (trees()[r.id]?.conflicted.length ?? 0) > 0) ? "error" : "neutral")}
+      actions={
+        pane === "staged" ? (
+          <Action icon="minus" label="Unstage all" disabled={stagedAll().length === 0} onClick={() => void unstageItems(stagedAll())} />
+        ) : (
+          <>
+            <Action icon="plus" label="Stage all" shortcut="Ctrl+Alt+A" disabled={unstagedAll().length === 0} onClick={() => void stageItems(unstagedAll())} />
+            <Action icon="undo" label="Discard all" danger disabled={discardAll().length === 0} onClick={() => void discardItems(discardAll())} />
+          </>
+        )
+      }
+      rows={paneRowsOf[pane]()}
+      rowHeight={rowH()}
+      loading={!loadedAll()}
+      emptyTitle={pane === "staged" ? "Nothing staged" : "No unstaged changes"}
+      emptyHint={
+        pane === "staged" ? (
+          paneRowsOf.work().length > 0 ? "Stage files to put them in the next commit." : undefined
+        ) : clean() ? (
+          <>
+            {cleanBody()}
+            <Show when={lastCommit()}>
+              {(c) => (
+                <>
+                  {" "}Last commit <span data-tip={fullDate(c().time)}>{formatDate(c().time)}</span>{scope().length > 1 ? ` in ${c().repo}` : ""}.
+                </>
+              )}
+            </Show>
+          </>
+        ) : undefined
+      }
+      ariaLabel={`${PANE_TITLE[pane]} changes`}
+      cursorIndex={cursor() && paneOfKey(cursor() as string) === pane ? paneIndex().get(cursor() as string) ?? -1 : -1}
+      onKeyDown={onListKey}
+      apiRef={(a) => (lists[pane] = a)}
+      renderRow={(i) => renderRow(i, pane)}
+      marquee={marqueeOf(pane)}
+    />
+  );
 
   return (
     <div class="dg-changes" ref={root}>
@@ -556,59 +717,20 @@ export function ChangesView(): JSX.Element {
       </Show>
 
       <div class="dg-changes-body" ref={bodyEl}>
-        <Show
-          when={rows().length > 0}
-          fallback={
-            <Show when={loadedAll()} fallback={<div class="dg-changes-loading"><Spinner /></div>}>
-              <EmptyState icon="changes" title="Working tree clean">
-                {cleanBody()}
-                <Show when={lastCommit()}>
-                  {(c) => (
-                    <>
-                      <br />
-                      Last commit <span data-tip={fullDate(c().time)}>{formatDate(c().time)}</span>{scope().length > 1 ? ` in ${c().repo}` : ""}.
-                    </>
-                  )}
-                </Show>
-                <br />
-                Fetch (Ctrl+T) to look for changes on the remotes.
-              </EmptyState>
-            </Show>
-          }
-        >
-          <VirtualList
-            class="dg-changes-list"
-            role="tree"
-            ariaLabel="Local changes"
-            count={rows().length}
-            rowHeight={rowH()}
-            selectedIndex={cursorIndex()}
-            onKeyDown={onListKey}
-            apiRef={(a) => {
-              listApi = a;
-              listEl = a.element();
-            }}
-            renderRow={(i) => {
-              const row = createMemo(() => rows()[i]);
-              const as = <K extends Row["kind"]>(kind: K) => (): Extract<Row, { kind: K }> | undefined => {
-                const r = row();
-                return r?.kind === kind ? (r as Extract<Row, { kind: K }>) : undefined;
-              };
-              const repoRow = as("repo");
-              const sectionRow = as("section");
-              const dirRow = as("dir");
-              const fileRow = as("file");
-              return (
-                <>
-                  <Show when={repoRow()}>{(r) => <RepoRowView row={r()} ctl={ctl} open={!collapsed().has(r().key)} />}</Show>
-                  <Show when={sectionRow()}>{(r) => <SectionRowView row={r()} ctl={ctl} />}</Show>
-                  <Show when={dirRow()}>{(r) => <DirRowView row={r() as DirRow} ctl={ctl} />}</Show>
-                  <Show when={fileRow()}>{(r) => <FileRowView row={r() as FileRow} ctl={ctl} />}</Show>
-                </>
-              );
-            }}
+        <div class="dg-changes-zone">{renderPane("work")}</div>
+        <div class="dg-changes-zone is-staged" style={{ height: stagedH() + "px" }}>
+          <Splitter
+            orientation="horizontal"
+            reverse
+            size={stagedH()}
+            onSize={setStagedPref}
+            min={paneMin()}
+            max={() => Math.max(paneMin(), bodyH() - paneMin())}
+            defaultSize={Math.round(bodyH() / 2)}
+            persistKey="changesStaged"
           />
-        </Show>
+          {renderPane("staged")}
+        </div>
       </div>
 
       <CommitBox
@@ -628,12 +750,20 @@ export function ChangesView(): JSX.Element {
               size="small"
               variant="ghost"
               icon="stashPush"
-              disabled={stashIds().length === 0}
-              title={stashIds().length === 0 ? "No local changes to stash" : "Stash the local changes and clean the working tree"}
+              disabled={stashSelected() ? selectedStashCount() === 0 : stashIds().length === 0}
+              title={
+                stashSelected()
+                  ? selectedStashCount() === 0
+                    ? "Conflicted files cannot be stashed. Resolve them first."
+                    : "Stash only the selected files and ask for a message"
+                  : stashIds().length === 0
+                    ? "No local changes to stash"
+                    : "Stash all local changes and clean the working tree. Select files to stash only those."
+              }
               shortcut="Ctrl+Alt+Z"
-              onClick={() => void actions.stashSave(stashIds())}
+              onClick={() => void (stashSelected() ? actions.stashSave([], stashPicks()) : actions.stashSave(stashIds()))}
             >
-              Stash changes
+              {stashSelected() ? (selectedStashCount() > 0 ? `Stash ${plural(selectedStashCount(), "file")}…` : "Stash selected…") : "Stash changes"}
             </Button>
           </>
         }

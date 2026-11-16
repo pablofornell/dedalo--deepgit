@@ -467,6 +467,35 @@ fn stash_save_pop_apply_drop() {
 }
 
 #[test]
+fn stash_save_paths_stashes_only_the_given_files() {
+    let r = TestRepo::new();
+    let g = git();
+    r.commit_file("a.txt", "1\n", "init");
+    r.commit_file("b.txt", "1\n", "second");
+    r.write("a.txt", "dirty a\n");
+    r.write("b.txt", "dirty b\n");
+    r.write("u.txt", "untracked\n");
+    ops::stage(&g, &r.info, &strs(&["b.txt"])).unwrap();
+
+    // a tracked file and an untracked one; the staged b.txt stays
+    let paths = strs(&["a.txt", "u.txt"]);
+    let res = ops::stash_save_paths(&g, &r.info, Some("part"), true, false, &paths).unwrap();
+    assert!(res.ok, "{}", res.message);
+    assert_eq!(r.read("a.txt"), "1\n");
+    assert!(!r.path().join("u.txt").exists());
+    assert_eq!(r.read("b.txt"), "dirty b\n");
+    let wt = status::working_tree(&g, &r.info).unwrap();
+    assert_eq!(wt.staged.len(), 1);
+    assert_eq!(wt.staged[0].path, "b.txt");
+    let stashes = refs::read_refs(&g, &r.info).unwrap().stashes;
+    assert_eq!(stashes.len(), 1);
+    assert!(stashes[0].message.contains("part"));
+
+    // a path outside the repo is refused
+    assert!(ops::stash_save_paths(&g, &r.info, None, false, false, &strs(&["../x"])).is_err());
+}
+
+#[test]
 fn stash_pop_conflict_reports_conflicts() {
     let r = TestRepo::new();
     let g = git();

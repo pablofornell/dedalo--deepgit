@@ -48,4 +48,7 @@
 - [x] **Image/GIF viewer for changes:** Visual preview (before/after, side by side, swipe/onion-skin, animated GIFs) instead of a text diff for image files.
 - [x] **Create files in the Files view:** Right-click → "New File" / "New Folder" with an inline name field.
 - [x] **About dialog:** "About" item in the options dropdown: name, icon, version, build date, links.
+- [x] **Local changes: two fixed zones:** Unstaged and Staged are always visible (header, count, empty state, draggable remembered divider), so the layout never jumps.
+- [x] **Local changes: rectangle selection:** Drag on rows or empty space to select several files (`Shift` adds, `Ctrl` toggles, auto-scroll at the edges).
+- [x] **Local changes: stash selected files:** "Stash N files…" button and context menu item stash only the selected files (all changes when nothing is selected).
 - [x] **Project filter:** Search field at the top of the Projects dropdown (case-insensitive, live, focused on open, Up/Down/Enter/Esc, empty state). The earlier repository filter in the sidebar was removed.

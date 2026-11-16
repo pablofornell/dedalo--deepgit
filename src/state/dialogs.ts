@@ -106,8 +106,19 @@ export interface PushResult {
   tags: boolean;
 }
 
+/** The files of one repo that a stash is limited to. */
+export interface StashFiles {
+  /** Repo-relative paths (the old path of a rename included). */
+  paths: string[];
+  /** Number of files (a rename counts once although it has two paths). */
+  count: number;
+  /** How many of the files are untracked: they only go into a stash made with `-u`. */
+  untracked: number;
+}
 export interface StashProps {
   repoIds: string[];
+  /** Stash only these files, by repo id. Without it the dialog stashes every change of the repos. */
+  files?: Record<string, StashFiles>;
 }
 export interface StashResult {
   message: string | null;
