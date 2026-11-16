@@ -21,6 +21,7 @@ import {
 } from "./appearance";
 import { ALERT_EXPIRY_CHOICES, ALERT_EXPIRY_DEFAULT } from "./alertsCore";
 import type { DateFormat } from "./dateFormat";
+import { H_SCROLL_DEFAULT, sanitizeHScrollSensitivity } from "./horizontalScroll";
 import { bumpAppearance } from "./metrics";
 import { loadPersisted, removePersisted, savePersisted } from "./persist";
 
@@ -41,6 +42,8 @@ export interface Settings {
   diffMode: DiffMode;
   /** Scroll long diff lines by the pointer position near the pane edges (`features/diff/pointerScroll.ts`). */
   diffPointerScroll: boolean;
+  /** Response of the horizontal wheel, trackpad swipe and Shift + wheel in File changes: percent 25..300, 100 = as the browser does (`state/horizontalScroll.ts`). */
+  hScrollSensitivity: number;
   // ---- auto-fetch and commit sign-off (wave 1: git features) -----------------------------------------------------
   /** Fetch every repo of the project in the background every N minutes; 0 = off (`state/autoFetch.ts`). */
   autoFetchMinutes: number;
@@ -77,6 +80,7 @@ export const SETTING_DEFAULTS: Readonly<Settings> = {
   dateFormat: "absolute",
   diffMode: "sideBySide",
   diffPointerScroll: true,
+  hScrollSensitivity: H_SCROLL_DEFAULT,
   // ---- auto-fetch and commit sign-off
   autoFetchMinutes: 15,
   autoFetchPrune: true,
@@ -105,6 +109,7 @@ export const SANITIZERS: { [K in keyof Settings]: (v: unknown) => Settings[K] } 
   dateFormat: (v) => oneOf<DateFormat>("relative", "absolute")(SETTING_DEFAULTS.dateFormat)(v === "iso" ? "absolute" : v),
   diffMode: oneOf<DiffMode>("sideBySide", "unified")(SETTING_DEFAULTS.diffMode),
   diffPointerScroll: (v) => (typeof v === "boolean" ? v : SETTING_DEFAULTS.diffPointerScroll),
+  hScrollSensitivity: sanitizeHScrollSensitivity,
   autoFetchMinutes: (v) => ((AUTO_FETCH_CHOICES as readonly number[]).includes(v as number) ? (v as number) : SETTING_DEFAULTS.autoFetchMinutes),
   autoFetchPrune: (v) => (typeof v === "boolean" ? v : SETTING_DEFAULTS.autoFetchPrune),
   commitSignOff: (v) => (typeof v === "boolean" ? v : SETTING_DEFAULTS.commitSignOff),
