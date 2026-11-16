@@ -81,6 +81,33 @@ describe("settings store", () => {
     expect(storage.has("deepgit.ui.diffPointerScroll")).toBe(false);
   });
 
+  it("horizontal scroll sensitivity defaults to 100, and stored garbage is fixed on load", async () => {
+    storage.set("deepgit.ui.hScrollSensitivity", '"fast"');
+    expect((await load()).settings.hScrollSensitivity).toBe(100);
+    storage.set("deepgit.ui.hScrollSensitivity", "9999");
+    expect((await load()).settings.hScrollSensitivity).toBe(300);
+    storage.set("deepgit.ui.hScrollSensitivity", "152");
+    expect((await load()).settings.hScrollSensitivity).toBe(150);
+    storage.set("deepgit.ui.hScrollSensitivity", "175");
+    expect((await load()).settings.hScrollSensitivity).toBe(175);
+  });
+
+  it("horizontal scroll sensitivity is validated, persisted and reset", async () => {
+    const { settings, setSetting, resetSettings } = await load();
+    expect(settings.hScrollSensitivity).toBe(100);
+    setSetting("hScrollSensitivity", 250);
+    expect(settings.hScrollSensitivity).toBe(250);
+    expect(storage.get("deepgit.ui.hScrollSensitivity")).toBe("250");
+    setSetting("hScrollSensitivity", 1);
+    expect(settings.hScrollSensitivity).toBe(25);
+    setSetting("hScrollSensitivity", "no" as never);
+    expect(settings.hScrollSensitivity).toBe(100);
+    setSetting("hScrollSensitivity", 50);
+    resetSettings(["hScrollSensitivity"]);
+    expect(settings.hScrollSensitivity).toBe(100);
+    expect(storage.has("deepgit.ui.hScrollSensitivity")).toBe(false);
+  });
+
   it("loads valid stored values", async () => {
     storage.set("deepgit.ui.fontSize", "16");
     storage.set("deepgit.ui.uiScale", "130");

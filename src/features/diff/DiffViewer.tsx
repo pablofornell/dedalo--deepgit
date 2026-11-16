@@ -13,6 +13,7 @@ import { Button, EmptyState, Icon, IconButton, SegmentedControl, Spinner, Status
 import { confirmAction } from "../../state/dialogs";
 import { repoVersion } from "../../state/events";
 import { cssPx } from "../../state/metrics";
+import { scaledHorizontalWheel } from "../../state/horizontalScroll";
 import { settings, type DiffMode } from "../../state/settings";
 import { chooseDiffMode, collapseOn, explicitDiffMode, ignoreWs, lineNumbersOn, setCollapseOn, setIgnoreWs, setLineNumbersOn, setSyntaxOn, setWordDiffOn, syntaxOn, wordDiffOn } from "./diffPrefs";
 import { activateDiff, releaseDiff, type DiffController } from "./diffKeys";
@@ -291,7 +292,22 @@ export function DiffViewer(props: DiffViewerProps): JSX.Element {
     if (primary.scrollLeft !== left.scrollLeft) primary.scrollLeft = left.scrollLeft;
     if (primary.scrollTop !== left.scrollTop) primary.scrollTop = left.scrollTop;
   };
+  // Horizontal wheel / swipe / Shift + wheel, scaled by the setting. At 100% nothing happens here and the browser
+  // scrolls as it always did. The sync above moves the left pane. `hPos` keeps the fraction that the browser drops
+  // when it rounds `scrollLeft`, so small steps (low sensitivity) still add up.
+  let hPos: number | null = null;
+  const onHorizontalWheel = (e: WheelEvent): boolean => {
+    if (!primary) return false;
+    const dx = scaledHorizontalWheel(e, settings.hScrollSensitivity, rowH(), primary.clientWidth);
+    if (dx === null) return false;
+    const base = hPos !== null && Math.abs(hPos - primary.scrollLeft) < 1 ? hPos : primary.scrollLeft;
+    hPos = Math.min(Math.max(0, primary.scrollWidth - primary.clientWidth), Math.max(0, base + dx));
+    primary.scrollLeft = hPos;
+    e.preventDefault();
+    return true;
+  };
   const onLeftWheel = (e: WheelEvent) => {
+    if (onHorizontalWheel(e)) return;
     if (!primary || e.shiftKey || Math.abs(e.deltaY) < Math.abs(e.deltaX)) return;
     primary.scrollTop += e.deltaMode === 1 ? e.deltaY * rowH() : e.deltaY;
     e.preventDefault();
@@ -645,6 +661,7 @@ export function DiffViewer(props: DiffViewerProps): JSX.Element {
                   tabindex={0}
                   ref={(el) => attachPrimary(el, false)}
                   onScroll={onPrimaryScroll}
+                  onWheel={(e) => void onHorizontalWheel(e)}
                   onPointerMove={(e) => onPanePointerMove(e, primary)}
                   onPointerLeave={stopPointerScroll}
                 >
@@ -688,6 +705,7 @@ export function DiffViewer(props: DiffViewerProps): JSX.Element {
                 tabindex={0}
                 ref={(el) => attachPrimary(el, true)}
                 onScroll={onPrimaryScroll}
+                onWheel={(e) => void onHorizontalWheel(e)}
                 onPointerMove={(e) => onPanePointerMove(e, primary)}
                 onPointerLeave={stopPointerScroll}
               >
