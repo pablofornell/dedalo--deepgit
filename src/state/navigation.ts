@@ -3,10 +3,9 @@
  * Alt+Right (registered in `shortcuts.ts`). The stack logic is in `navHistory.ts`; this file watches what the user does
  * and restores a location.
  *
- * A location is the main view (Log, Local changes, Files) plus the commit selected in the log, or the file open in the
- * Files view. A new location is recorded when the view, the commit or the file changes, and not while a location is
- * being restored. A commit selected in the log is found and scrolled into view by `LogView`; a file is opened by
- * `FilesView`, which tells this module how with `onOpenFile` and what its active file is with `setNavFile`.
+ * A location is the main view (Log, Local changes) plus the commit selected in the log. A new location is recorded when
+ * the view or the commit changes, and not while a location is being restored. A commit selected in the log is found and
+ * scrolled into view by `LogView`.
  */
 import { createEffect, createRoot, createSignal } from "solid-js";
 import { onNavBack, onNavForward } from "../api/tauri";
@@ -14,27 +13,6 @@ import { isOverlayOpen } from "./keymap";
 import { createNavHistory, createPressDedupe, type NavLocation } from "./navHistory";
 import { mainTab, selectedCommit, setMainTab, setSelectedCommit, type MainTab } from "./selection";
 import { onActiveProjectChanged, repoById } from "./workspace";
-
-export interface NavFile {
-  repoId: string;
-  path: string;
-}
-
-const [navFile, setNavFileSig] = createSignal<NavFile | null>(null);
-let openFile: ((repoId: string, path: string) => void) | null = null;
-
-/** The Files view reports the file of its active tab here (null when none is open). */
-export function setNavFile(f: NavFile | null): void {
-  setNavFileSig((prev) => (prev?.repoId === f?.repoId && prev?.path === f?.path ? prev : f));
-}
-
-/** The Files view says how to open a file in a tab. Returns the function that removes it. */
-export function onOpenFile(fn: (repoId: string, path: string) => void): () => void {
-  openFile = fn;
-  return () => {
-    if (openFile === fn) openFile = null;
-  };
-}
 
 const history = createNavHistory();
 
@@ -45,19 +23,15 @@ function here(): NavLocation {
     const c = selectedCommit();
     return { view, commit: c ? { repoId: c.repoId, oid: c.oid, stash: c.stash?.index } : undefined };
   }
-  if (view === "files") {
-    const f = navFile();
-    return { view, file: f ? { repoId: f.repoId, path: f.path } : undefined };
-  }
   return { view };
 }
 
-const isView = (v: string): v is MainTab => v === "log" || v === "changes" || v === "files";
+const isView = (v: string): v is MainTab => v === "log" || v === "changes";
 
 /** A location whose repo left the project, or whose view is unknown, is skipped. */
 function isValid(loc: NavLocation): boolean {
   if (!isView(loc.view)) return false;
-  const repoId = loc.commit?.repoId ?? loc.file?.repoId;
+  const repoId = loc.commit?.repoId;
   return repoId === undefined || !!repoById(repoId);
 }
 
@@ -70,7 +44,7 @@ const [revealTick, setRevealTick] = createSignal(0);
  */
 export const navRevealTick = revealTick;
 
-/** Shows a location: the view first, then the commit (the log scrolls to it) or the file. */
+/** Shows a location: the view first, then the commit (the log scrolls to it). */
 function restore(loc: NavLocation): void {
   restoring = true;
   try {
@@ -78,14 +52,12 @@ function restore(loc: NavLocation): void {
     if (loc.view === "log" && loc.commit) {
       setSelectedCommit({ repoId: loc.commit.repoId, oid: loc.commit.oid, stash: loc.commit.stash === undefined ? undefined : { index: loc.commit.stash } });
       setRevealTick((n) => n + 1);
-    } else if (loc.view === "files" && loc.file) {
-      openFile?.(loc.file.repoId, loc.file.path);
     }
   } finally {
     restoring = false;
   }
-  // The place shown can differ from the stored one (a location without commit keeps the selection, a file may not
-  // open): follow what is on screen, so it does not count as a new location.
+  // The place shown can differ from the stored one (a location without commit keeps the selection): follow what is on
+  // screen, so it does not count as a new location.
   history.settle(here());
 }
 

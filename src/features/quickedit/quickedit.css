@@ -1,0 +1,105 @@
+/* Quick editor (dialog "quickEdit"): header, editor surface, picture preview, footer. Prefix dg-qe-. Use tokens only. */
+
+/* ---- window. A fixed size that follows the viewport, so the dialog does not jump between its states. */
+.dg-qe-scrim { place-items: center; padding: 0; }
+.dg-qe-window {
+  display: flex; flex-direction: column; min-width: 0; min-height: 0; outline: 0; overflow: hidden;
+  width: min(960px, calc(100vw - 48px)); height: min(680px, calc(100vh - 64px));
+  border-radius: var(--dg-dialog-radius); background: var(--dg-dialog-bg); border: 1px solid var(--dg-popup-border); box-shadow: var(--dg-popup-shadow);
+  animation: dg-scale-in var(--dg-dur-base) var(--dg-ease-out);
+}
+
+/* ---- header: icon, path (folder muted, file name strong), dirty dot, language */
+.dg-qe-head {
+  display: flex; align-items: center; gap: var(--dg-space-4); flex: none; height: 40px; padding: 0 var(--dg-space-5) 0 var(--dg-space-7);
+  border-bottom: 1px solid var(--dg-island-header-border); background: linear-gradient(90deg, var(--dg-accent-wash-soft), transparent 50%);
+}
+.dg-qe-head-icon { flex: none; color: var(--dg-icon-secondary); }
+.dg-qe-path { display: flex; min-width: 0; font-size: var(--dg-font-size-h4); font-weight: var(--dg-weight-semibold); line-height: 20px; white-space: nowrap; }
+.dg-qe-dir { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--dg-text-secondary); font-weight: var(--dg-weight-regular); }
+.dg-qe-name { flex: none; }
+.dg-qe-dirty { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--dg-dirty-dot); }
+.dg-qe-lang { flex: none; padding: 0 8px; height: var(--dg-pill-height); line-height: var(--dg-pill-height); border-radius: var(--dg-pill-radius); background: var(--dg-neutral-wash); color: var(--dg-neutral-fg); font-size: var(--dg-font-size-small); }
+
+/* ---- body: the editor, the picture or a note. The find widget floats over it. */
+.dg-qe-body { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; position: relative; }
+.dg-qe-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--dg-space-5); color: var(--dg-text-muted); text-align: center; padding: var(--dg-space-7); }
+.dg-qe-body .dg-empty { flex: 1; }
+
+/* ---- footer */
+.dg-qe-foot { flex: none; display: flex; align-items: center; gap: var(--dg-space-4); height: 48px; padding: 0 var(--dg-space-6); border-top: 1px solid var(--dg-island-header-border); }
+.dg-qe-meta { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--dg-space-6); color: var(--dg-text-secondary); font-size: var(--dg-font-size-medium); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* ---- editor surface. Copied from the merge window (`merge.css`). */
+.dg-qe-editor { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--dg-editor-bg); }
+.dg-qe-editor .cm-editor { flex: 1; min-height: 0; background: var(--dg-editor-bg); color: var(--dg-editor-fg); font-family: var(--dg-font-mono); font-size: var(--dg-font-size-mono); outline: 0; }
+.dg-qe-editor .cm-scroller { font-family: inherit; line-height: var(--dg-line-height-code); overflow: auto; overflow-anchor: none; }
+.dg-qe-editor .cm-content { padding: 0; min-height: 100%; caret-color: var(--dg-editor-fg); }
+.dg-qe-editor .cm-line { padding: 0 8px 0 6px; height: var(--dg-line-height-code); white-space: pre; }
+.dg-qe-editor .cm-gutters { background: var(--dg-island-bg); color: var(--dg-editor-line-number); border: 0; border-right: 1px solid var(--dg-island-header-border); font-size: calc(var(--dg-font-size-mono) - 0.5px); }
+.dg-qe-editor .cm-lineNumbers .cm-gutterElement { padding: 0 8px 0 10px; min-width: 36px; line-height: var(--dg-line-height-code); }
+.dg-qe-editor .cm-activeLineGutter { background: transparent; color: var(--dg-editor-line-number-current); }
+.dg-qe-editor .cm-activeLine { background: var(--dg-editor-caret-row); }
+.dg-qe-editor .cm-content ::selection, .dg-qe-editor .cm-line::selection { background: var(--dg-selection-bg); }
+.dg-qe-editor .cm-cursor { border-left-color: var(--dg-editor-fg); }
+.dg-qe-editor .cm-selectionBackground { background: var(--dg-selection-inactive-bg); }
+.dg-qe-editor .cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground { background: var(--dg-selection-bg); }
+.dg-qe-editor .cm-selectionMatch { background: var(--dg-accent-wash-soft); }
+
+/* Syntax colours. They use the same tokens as the diff viewer. The classes come from `syntaxPlugin`. */
+.dg-qe-editor .dg-mg-t-kw { color: var(--dg-editor-keyword); }
+.dg-qe-editor .dg-mg-t-str { color: var(--dg-editor-string); }
+.dg-qe-editor .dg-mg-t-num { color: var(--dg-editor-number); }
+.dg-qe-editor .dg-mg-t-com { color: var(--dg-editor-comment); }
+.dg-qe-editor .dg-mg-t-fn { color: var(--dg-editor-function); }
+.dg-qe-editor .dg-mg-t-type { color: var(--dg-editor-type); }
+.dg-qe-editor .dg-mg-t-field { color: var(--dg-editor-field); }
+.dg-qe-editor .dg-mg-t-meta { color: var(--dg-editor-metadata); }
+
+/* ---- picture preview: the picture fits the window, "Actual size" shows it at its own size (the view scrolls). */
+.dg-qe-image { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.dg-qe-image-view { flex: 1; min-height: 0; display: flex; overflow: hidden; padding: var(--dg-space-5); }
+.dg-qe-image-view.is-actual { overflow: auto; }
+.dg-qe-image-view > * { margin: auto; flex: none; }
+.dg-qe-image-img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; box-shadow: 0 0 0 1px var(--dg-island-header-border); user-select: none; -webkit-user-drag: none; }
+.dg-qe-image-view.is-actual .dg-qe-image-img { max-width: none; max-height: none; }
+.dg-qe-image-bar { flex: none; display: flex; align-items: center; gap: var(--dg-space-4); height: var(--dg-control-height-small); padding: 0 var(--dg-space-5); border-top: 1px solid var(--dg-island-header-border); color: var(--dg-text-muted); font-size: var(--dg-font-size-small); }
+.dg-qe-image-info { flex: 1; min-width: 0; display: inline-flex; gap: var(--dg-space-4); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* ---- conflicted file: the bar over the editor, and the hunks in the editor (`conflictEditor.ts`). Same tokens as the Changes banner and the merge window. */
+.dg-qe-cfbar {
+  flex: none; display: flex; align-items: center; gap: var(--dg-space-3); min-height: var(--dg-banner-height); padding: var(--dg-space-2) var(--dg-space-4) var(--dg-space-2) var(--dg-space-5);
+  background: var(--dg-banner-error-bg); box-shadow: inset 0 0 0 1px var(--dg-banner-error-border), inset 3px 0 0 var(--dg-danger);
+}
+.dg-qe-cfbar.is-resolved { background: var(--dg-banner-success-bg); box-shadow: inset 0 0 0 1px var(--dg-banner-success-border), inset 3px 0 0 var(--dg-success); }
+.dg-qe-cfbar-icon { flex: none; color: var(--dg-text-error); }
+.dg-qe-cfbar.is-resolved .dg-qe-cfbar-icon { color: var(--dg-text-success); }
+.dg-qe-cfbar-text { min-width: 0; line-height: calc(18 * var(--dg-u)); }
+
+/* Lines of a hunk. Yours is blue, Theirs green, the common ancestor grey, the marker lines red. */
+.dg-qe-editor .cm-line.dg-cf-line.is-yours { background: var(--dg-merge-modified-bg); }
+.dg-qe-editor .cm-line.dg-cf-line.is-theirs { background: var(--dg-merge-inserted-bg); }
+.dg-qe-editor .cm-line.dg-cf-line.is-base { background: var(--dg-merge-deleted-bg); }
+.dg-qe-editor .cm-line.dg-cf-line.is-marker { background: var(--dg-merge-conflict-bg); color: var(--dg-text-secondary); box-shadow: inset 3px 0 0 var(--dg-merge-conflict-marker); }
+.dg-qe-editor .cm-line.dg-cf-line.is-marker.is-yours { box-shadow: inset 3px 0 0 var(--dg-merge-modified-marker); }
+.dg-qe-editor .cm-line.dg-cf-line.is-marker.is-theirs { box-shadow: inset 3px 0 0 var(--dg-merge-inserted-marker); }
+.dg-qe-editor .cm-line.dg-cf-line.is-marker.is-base { box-shadow: inset 3px 0 0 var(--dg-merge-deleted-marker); }
+.dg-qe-editor .cm-line.dg-cf-line.is-marker.is-middle { box-shadow: inset 3px 0 0 var(--dg-merge-conflict-marker); }
+/* A marker without a hunk (never closed, or closed twice): the file still has conflict markers. */
+.dg-qe-editor .cm-line.dg-cf-line.is-stray { background: var(--dg-danger-wash); color: var(--dg-text-error); }
+
+/* The row of actions above a hunk */
+.dg-cf-bar {
+  display: flex; align-items: center; gap: var(--dg-space-2); box-sizing: border-box; height: calc(28 * var(--dg-u)); padding: 0 8px 0 10px;
+  background: var(--dg-island-bg); border-top: 1px solid var(--dg-island-header-border); font-family: var(--dg-font-ui); font-size: var(--dg-font-size-medium);
+  color: var(--dg-text-secondary);
+}
+.dg-cf-bar-label { color: var(--dg-text-error); font-weight: var(--dg-weight-semibold); }
+.dg-cf-bar-grow { flex: 1; min-width: 0; }
+.dg-cf-btn {
+  flex: none; height: calc(20 * var(--dg-u)); padding: 0 8px; border: 0; border-radius: 4px; cursor: default;
+  background: transparent; color: var(--dg-text); font: inherit; box-shadow: inset 0 0 0 1px var(--dg-border);
+}
+.dg-cf-btn:hover { background: var(--dg-hover-bg); }
+.dg-cf-btn:active { background: var(--dg-pressed-bg, var(--dg-hover-bg)); }
+.dg-cf-btn:focus-visible { outline: 0; box-shadow: inset 0 0 0 var(--dg-focus-width) var(--dg-focus-ring); }

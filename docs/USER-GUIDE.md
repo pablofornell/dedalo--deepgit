@@ -206,12 +206,12 @@ Hover a mark to see its name. Click a mark to jump to that commit and select it.
 
 ### Go back and forward
 
-DeepGit remembers the places you visit: the **Log**, **Local changes** and **Files** tabs, the commit you selected in the log, and the file you opened in **Files**. Go back and forward like in an IDE:
+DeepGit remembers the places you visit: the **Log** and **Local changes** tabs and the commit you selected in the log. Go back and forward like in an IDE:
 
-- Press the **back** side button of your mouse, or `Alt+←`, to go back. The tab changes, the commit is selected and scrolled into view, or the file opens.
+- Press the **back** side button of your mouse, or `Alt+←`, to go back. The tab changes, or the commit is selected and scrolled into view.
 - Press the **forward** side button, or `Alt+→`, to go forward.
 - DeepGit keeps the last 100 places. A new place after you went back drops the places ahead.
-- `Alt+←` and `Alt+→` do not work in a text field or in the file editor, where they move the cursor. The mouse buttons work there.
+- `Alt+←` and `Alt+→` do not work in a text field or in an editor, where they move the cursor. The mouse buttons work there.
 - Places of a repository that you removed from the project are skipped. Changing the project starts a new history.
 
 ### Select commits
@@ -372,13 +372,24 @@ To stage only a part of a file, use the **Stage** button on a hunk in the **File
 
 ### Ignore files
 
-Right-click a file or a folder, in the **Local changes** list or in the tree of the **Files** tab, and choose **Add to .gitignore…**.
+Right-click a file or a folder in the **Local changes** list and choose **Add to .gitignore…**.
 Select several files first to add them together. The item is not there for a repository row or for a `.gitignore` file.
 
 - Choose a pattern: this file, this name anywhere, this extension anywhere, this folder, this folder name anywhere, or your own text. The number at the right of each pattern is how many files of the repository it matches.
 - Choose where the line goes: the `.gitignore` at the root of the repository (shared with others), or `.git/info/exclude` (only on your computer).
 - DeepGit adds the line at the end of the file and creates the file when it does not exist. It does not stage or commit. Commit the `.gitignore` when you are ready.
 - Git ignores only untracked files. When a pattern matches tracked files, the dialog says so. DeepGit does not untrack them.
+
+### Edit a file
+
+DeepGit has a small editor for quick changes to a README or a config file, like **Edit file** on GitHub. It is not a code editor: it opens one file at a time.
+
+- Right-click a file in the **Local changes** list and choose **Edit file**. The same item is in the menu of a file in **Changed files** (it opens the working tree version of the file), and a pencil button is in the header of the diff of a working tree file. **Edit the selected file…** in Search Everywhere does the same for the file that is selected. After **Add to .gitignore…**, the **Open .gitignore** button of the message opens the file in the editor.
+- The editor shows line numbers and colours for the common languages (Markdown, JSON, TOML, YAML, Rust, TypeScript and others). `Ctrl+F` finds text and `Ctrl+H` replaces it. A file keeps its line breaks (LF or CRLF).
+- Click **Save** or press `Ctrl+S` to write the file and close the editor. The **Local changes** list and the diff refresh at once. Press `Esc` or click **Cancel** to close; when you have unsaved changes, DeepGit asks before it discards them.
+- If the file changed on disk after you opened it, DeepGit says so and asks: **Overwrite** the file with your text, or **Reload** it and lose your changes.
+- A picture (PNG, GIF, WebP, ...) shows as a picture. Any other binary file, and a file larger than 2 MiB, shows a note: DeepGit does not edit it. The item is disabled for a deleted file.
+- A file with merge conflicts gets the conflict tools of the editor: see [Resolve the conflict markers in the editor](#resolve-the-conflict-markers-in-the-editor).
 
 ### Stash selected files
 
@@ -706,16 +717,16 @@ The file keeps its line ending (LF or CRLF) and its file mode. DeepGit refuses t
 
 The current change is the one under the cursor in the Result, or the one you went to last. Its edges are drawn thicker.
 
-#### Resolve the conflict markers in the Files tab
+#### Resolve the conflict markers in the editor
 
-A file with merge conflicts also opens in the **Files** tab with the conflict markers that git wrote (`<<<<<<<`, `|||||||` when the
+Right-click a file in the **Conflicts** section and choose **Resolve in editor**. The [quick editor](#edit-a-file) opens the file with the conflict markers that git wrote (`<<<<<<<`, `|||||||` when the
 repository uses the diff3 style, `=======`, `>>>>>>>`). Each conflict is one hunk:
 
 - The two sides have a colour: blue for Yours, green for Theirs, grey for the common ancestor. The marker lines are red.
 - Above each hunk, **Accept Yours**, **Accept Theirs**, **Yours + Theirs** and **Theirs + Yours** replace the hunk with that text.
   Each action is one edit: `Ctrl+Z` undoes it. You can also edit the text by hand.
 - A bar over the editor counts the conflicts left. `F7` and `Shift+F7` (or the arrows in the bar) go to the next and the previous one.
-  **Merge window…** opens the three-pane window for the file (the file must be saved first).
+  **Merge window…** opens the three-pane window for the file (the file must be saved first; the editor closes).
 - **Mark as resolved** saves the file and stages it. It works only when no conflict marker is left in the text; otherwise DeepGit
   shows a warning and goes to the first conflict that is left.
 
@@ -1011,6 +1022,7 @@ The diff shortcuts act on the diff viewer that you used last.
 | Search Everywhere | `Tab` `Shift+Tab` | Next or previous tab |
 | Search Everywhere | `Enter` | Open the result |
 | Search Everywhere | `Esc` | Close |
+| Edit file | `Ctrl+S` `Esc` | Save and close, close |
 | Dialog | `Enter` | Run the main action |
 | Dialog | `Esc` | Cancel |
 | Conflicts dialog | `↑` `↓` `Enter` `Ctrl+A` | Move, open the merge window, select all files |

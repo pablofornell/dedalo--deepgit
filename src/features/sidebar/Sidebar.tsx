@@ -13,7 +13,7 @@ import { changesRepoForNode } from "../../state/changesScope";
 import { selectFile, selectedFile, setChangesRepoId, jumpToCommit, setDetailsTab, setSelectedCommit } from "../../state/selection";
 import {
   repoById, activeProject, addProject, focusedRepoIdSignal, isRepoFilterActive, projectRepos, rescanProject, selectAllRepos, selectOnlyRepo, selectedRepoIds,
-  setFocusedRepoId, summary, toggleRepo,
+  setFocusedRepoId, setSelectedRepoIds, summary, toggleRepo,
 } from "../../state/workspace";
 import { collapsedFor, collapsedKey, noCollapsed, pruneCollapsed, type CollapsedState } from "./collapsed";
 import { restoreSidebarState, sidebarStateKey } from "./projectState";
@@ -211,9 +211,29 @@ export function Sidebar(): JSX.Element {
     }
   };
 
-  /** A click on a branch, tag or stash selects its tip commit in the log and pulses its node (not keys, not right-click). */
+  /** The scope before the last folder click: a double-click (collapse) gives it back, so it only toggles the folder. */
+  let folderScope: { id: string; at: number; repoIds: string[]; focused: string | null } | null = null;
+  const DOUBLE_CLICK_MS = 600;
+
+  /**
+   * A click on a branch, tag or stash selects its tip commit in the log and pulses its node (not keys, not right-click).
+   * A click on a folder scopes the log and Local changes to the repos below it (all levels), like "all repos" but local
+   * to the folder. The chevron only expands or collapses (it stops the click).
+   */
   const jump = (n: SidebarNode) => {
-    if (n.kind === "branch") jumpToCommit({ repoId: n.repoId, oid: n.branch.oid });
+    if (n.kind === "folder") {
+      if (n.repoIds.length === 0) return;
+      const focused = untrack(focusedRepoIdSignal);
+      folderScope = { id: n.id, at: Date.now(), repoIds: untrack(selectedRepoIds), focused };
+      showOnly(n.repoIds);
+      // Local changes follows the folder too, also when the filter does not change (a repo row was picked before)
+      setChangesRepoId(null);
+      // the focused repo must stay visible: move it to the first repo of the folder when it is outside
+      if (!focused || !n.repoIds.includes(focused)) {
+        const first = projectRepos().find((r) => n.repoIds.includes(r.id));
+        if (first) setFocusedRepoId(first.id);
+      }
+    } else if (n.kind === "branch") jumpToCommit({ repoId: n.repoId, oid: n.branch.oid });
     else if (n.kind === "remoteBranch") jumpToCommit({ repoId: n.repoId, oid: n.remote.oid });
     else if (n.kind === "tag") jumpToCommit({ repoId: n.repoId, oid: n.tag.oid });
     else if (n.kind === "stash") jumpToCommit({ repoId: n.repoId, oid: n.stash.oid, stash: { index: n.stash.index } });
@@ -230,6 +250,11 @@ export function Sidebar(): JSX.Element {
     }
     switch (n.kind) {
       case "folder":
+        if (folderScope && folderScope.id === n.id && Date.now() - folderScope.at < DOUBLE_CLICK_MS) {
+          setSelectedRepoIds(folderScope.repoIds);
+          if (folderScope.focused) setFocusedRepoId(folderScope.focused);
+          folderScope = null;
+        }
         if (!q()) setFoldersOpen([n.id], collapsed().has(n.id));
         break;
       case "repo":

@@ -10,6 +10,7 @@ import { isImagePath } from "../../api/imageFiles";
 import * as api from "../../api/tauri";
 import type { DiffSpec, FileDiff, HunkRef } from "../../api/types";
 import { Button, EmptyState, Icon, IconButton, SegmentedControl, Spinner, StatusLetter, copyText, fileIconFor, openMenu, shortOid, splitDragging, splitPath, statusColorVar, toast, type MenuItem } from "../../components/ui";
+import { editFile } from "../../state/actions";
 import { confirmAction } from "../../state/dialogs";
 import { repoVersion } from "../../state/events";
 import { cssPx } from "../../state/metrics";
@@ -298,11 +299,13 @@ export function DiffViewer(props: DiffViewerProps): JSX.Element {
   let hPos: number | null = null;
   const onHorizontalWheel = (e: WheelEvent): boolean => {
     if (!primary) return false;
-    const dx = scaledHorizontalWheel(e, settings.hScrollSensitivity, rowH(), primary.clientWidth);
-    if (dx === null) return false;
+    const d = scaledHorizontalWheel(e, settings.hScrollSensitivity, rowH(), primary.clientWidth, primary.clientHeight);
+    if (d === null) return false;
     const base = hPos !== null && Math.abs(hPos - primary.scrollLeft) < 1 ? hPos : primary.scrollLeft;
-    hPos = Math.min(Math.max(0, primary.scrollWidth - primary.clientWidth), Math.max(0, base + dx));
+    hPos = Math.min(Math.max(0, primary.scrollWidth - primary.clientWidth), Math.max(0, base + d.x));
     primary.scrollLeft = hPos;
+    // the native scroll is cancelled below, so a diagonal swipe keeps its vertical part here
+    if (d.y !== 0) primary.scrollTop += d.y;
     e.preventDefault();
     return true;
   };
@@ -556,6 +559,9 @@ export function DiffViewer(props: DiffViewerProps): JSX.Element {
           </Show>
         </Show>
         <IconButton icon="copy" label="Copy path" size="small" iconSize={14} onClick={() => void copyPath()} />
+        <Show when={props.spec.kind !== "commit"}>
+          <IconButton icon="edit" label="Edit file" size="small" iconSize={14} disabled={fileStatus() === "deleted"} onClick={() => void editFile(props.repoId, props.path)} />
+        </Show>
         <span class="dg-diff-grow" />
         {props.toolbarExtra}
         <Show when={!showImage() && changes().length > 0}>

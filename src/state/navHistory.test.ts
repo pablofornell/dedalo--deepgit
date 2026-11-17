@@ -3,17 +3,16 @@ import { describe, expect, it } from "vitest";
 import { NAV_LIMIT, createNavHistory, createPressDedupe, sameLocation, type NavLocation } from "./navHistory";
 
 const log = (oid?: string, repoId = "r1"): NavLocation => ({ view: "log", commit: oid ? { repoId, oid } : undefined });
-const file = (path: string, repoId = "r1"): NavLocation => ({ view: "files", file: { repoId, path } });
+const changes: NavLocation = { view: "changes" };
 
 describe("sameLocation", () => {
-  it("compares view, commit and file", () => {
+  it("compares view and commit", () => {
     expect(sameLocation(log("a"), log("a"))).toBe(true);
     expect(sameLocation(log("a"), log("b"))).toBe(false);
     expect(sameLocation(log("a", "r1"), log("a", "r2"))).toBe(false);
     expect(sameLocation(log(), log())).toBe(true);
     expect(sameLocation(log("a"), { view: "changes" })).toBe(false);
-    expect(sameLocation(file("x"), file("x"))).toBe(true);
-    expect(sameLocation(file("x"), file("y"))).toBe(false);
+    expect(sameLocation(changes, { view: "changes" })).toBe(true);
     expect(sameLocation({ view: "log", commit: { repoId: "r1", oid: "a", stash: 0 } }, log("a"))).toBe(false);
     expect(sameLocation(null, null)).toBe(true);
     expect(sameLocation(null, log())).toBe(false);
@@ -62,13 +61,13 @@ describe("createNavHistory", () => {
     const h = createNavHistory();
     h.record(log("a"));
     h.record(log("b"));
-    h.record(file("x"));
+    h.record(changes);
     expect(h.back()).toEqual(log("b"));
     expect(h.back()).toEqual(log("a"));
     expect(h.back()).toBeNull();
     expect(h.current()).toEqual(log("a"));
     expect(h.forward()).toEqual(log("b"));
-    expect(h.forward()).toEqual(file("x"));
+    expect(h.forward()).toEqual(changes);
     expect(h.forward()).toBeNull();
     expect(h.canForward()).toBe(false);
   });

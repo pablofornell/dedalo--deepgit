@@ -14,7 +14,7 @@ function DiffSection(): JSX.Element {
       </Row>
       <Row
         label="Horizontal scroll sensitivity"
-        hint={`How far the horizontal wheel, a trackpad swipe or Shift + wheel moves long lines in File changes. ${H_SCROLL_DEFAULT}% is the system default.`}
+        hint={`How far the horizontal wheel, a trackpad swipe or Shift + wheel moves long lines in File changes. Raise it so that a small wrist movement reaches the end of long lines. ${H_SCROLL_DEFAULT}% is the system default.`}
       >
         <div class="dg-settings-stack">
           <SizeControl

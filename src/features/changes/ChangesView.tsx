@@ -265,14 +265,20 @@ export function ChangesView(): JSX.Element {
     }),
   );
 
-  // the File changes tab must not keep showing a file that is no longer changed
+  // The File changes tab follows a file that moved to the other zone (stage, unstage) and shows its new diff; it drops
+  // a file that is no longer changed. Once the spec matches the zone this is a no-op, so it cannot loop.
   createEffect(() => {
     const f = selectedFile();
     if (!f || f.spec.kind === "commit") return;
     const wt = trees()[f.repoId];
     if (!wt) return;
+    const has = (list: readonly { path: string }[]) => list.some((x) => x.path === f.path);
     const section: Section = f.spec.kind === "staged" ? "staged" : "unstaged";
-    if (!sectionFiles(wt, section).some((x) => x.path === f.path) && !wt.conflicted.some((x) => x.path === f.path)) selectFile(null);
+    if (has(sectionFiles(wt, section)) || has(wt.conflicted)) return;
+    const other: Section = section === "staged" ? "unstaged" : "staged";
+    const moved = sectionFiles(wt, other).find((x) => x.path === f.path);
+    if (moved) selectFile({ ...f, spec: { kind: other }, oldPath: moved.oldPath ?? undefined }, { reveal: false });
+    else selectFile(null);
   });
 
   // ------------------------------------------------------------ actions
@@ -331,13 +337,20 @@ export function ChangesView(): JSX.Element {
       const staged = list.filter((i) => i.section === "staged");
       const n = (l: FileItem[]) => (l.length > 1 ? ` ${l.length} files` : "");
       if (conflicts.length) {
-        if (conflicts.length === 1 && row.kind === "file") menu.push({ label: "Merge…", icon: "merge", onSelect: () => void actions.openMerge(row.repoId, row.file.path) });
+        if (conflicts.length === 1 && row.kind === "file") {
+          menu.push({ label: "Merge…", icon: "merge", onSelect: () => void actions.openMerge(row.repoId, row.file.path) });
+          menu.push({ label: "Resolve in editor", icon: "edit", disabled: row.file.status === "deleted", onSelect: () => void actions.editFile(row.repoId, row.file.path) });
+        }
         menu.push({ label: `Accept Yours${n(conflicts)}`, icon: "conflict", onSelect: () => void acceptConflicts(row, "ours") });
         menu.push({ label: `Accept Theirs${n(conflicts)}`, icon: "conflict", onSelect: () => void acceptConflicts(row, "theirs") });
         menu.push({ label: `Mark${n(conflicts)} resolved`, icon: "check", onSelect: () => void stageItems(conflicts) });
       }
       if (plain.length) menu.push({ label: `Stage${n(plain)}`, icon: "plus", shortcut: "Space", onSelect: () => void stageItems(plain) });
       if (staged.length) menu.push({ label: `Unstage${n(staged)}`, icon: "minus", shortcut: staged.length === list.length ? "Space" : undefined, onSelect: () => void unstageItems(staged) });
+      if (row.kind === "file" && list.length === 1 && row.section !== "conflicts") {
+        const gone = row.file.status === "deleted";
+        menu.push({ label: "Edit file", icon: "edit", disabled: gone, tooltip: gone ? "The file is deleted from the working tree." : undefined, onSelect: () => void actions.editFile(row.repoId, row.file.path) });
+      }
       menu.push({ separator: true });
       const dis = discardable(list);
       menu.push({
@@ -399,9 +412,19 @@ export function ChangesView(): JSX.Element {
     },
     context: rowMenu,
     toggle: (row) => toggleCollapsed(row.key),
-    tick: (row) => void (row.section === "staged" ? unstageItems(targets(row)) : stageItems(targets(row))),
-    stage: (row) => void stageItems(targets(row)),
-    unstage: (row) => void unstageItems(targets(row)),
+    // staging or unstaging one file also shows its diff, so the user sees what moves (the effect above follows it)
+    tick: (row) => {
+      showDiff(row);
+      void (row.section === "staged" ? unstageItems(targets(row)) : stageItems(targets(row)));
+    },
+    stage: (row) => {
+      showDiff(row);
+      void stageItems(targets(row));
+    },
+    unstage: (row) => {
+      showDiff(row);
+      void unstageItems(targets(row));
+    },
     discard: (row) => void discardItems(targets(row)),
     acceptSide: (row, side) => void acceptConflicts(row, side),
     merge: (row) => void actions.openMerge(row.repoId, row.file.path),

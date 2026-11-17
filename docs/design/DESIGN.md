@@ -763,6 +763,16 @@ All dialogs: width 480 (wide 640), radius 10, padding 16 20, background `--dg-di
 
 Destructive actions (hard reset, force delete, discard, drop stash) use `--dg-button-danger-bg` for the primary button. The button text always names the action ("Discard 3 files"). Never use "OK".
 
+#### Quick editor (Edit file)
+
+A modal to change one working tree file, like "Edit file" on GitHub. It is for a README or a config file, not for coding. It has a fixed size, `min(960, 100vw − 48)` × `min(680, 100vh − 64)`, so it does not jump between its states. Radius 10, background `--dg-dialog-bg`, scrim `--dg-scrim`.
+
+1. **Header** (40 px): file icon, path (folder in `--dg-text-secondary`, file name 13/600), a 8 px dirty dot (`--dg-dirty-dot`) while the text has unsaved changes, the repository chip in a project with several repositories, the language as a neutral pill ("Markdown", "TOML", "Plain text"), a close button.
+2. **Body**: the editor (line numbers, the syntax colours of the diff viewer, find and replace `Ctrl+F` / `Ctrl+H`, the line breaks of the file kept). A picture shows as a picture on the checkerboard (fit to the window, or actual size). A binary file or a file over 2 MiB shows an empty state ("Binary file — cannot be edited here"). Loading and error states are centred in the same area.
+3. **Footer** (48 px): left, the cursor ("Ln 3, Col 5"), the line breaks (LF / CRLF) and UTF-8; right, "Cancel" and the primary "Save" (disabled until the text changes). `Ctrl+S` saves and closes. `Esc` and "Cancel" close; with unsaved changes a confirm dialog ("Discard your changes?", primary "Discard changes", danger) comes first.
+4. A file that changed on disk after it was read gives the dialog "The file changed on disk." with "Reload" and the danger "Overwrite".
+5. Entry points: "Edit file" in the Local changes file menu and in the Changed files menu, the pencil in the diff header of a working tree file, the palette action "Edit the selected file…", and "Open .gitignore" in the toast of the ignore dialog. The item is disabled for a deleted file.
+
 ### 5.12 Local changes view
 
 Location: tab "Local changes" in the log island. The **File changes** tab of the right column shows the selected file.
@@ -993,6 +1003,7 @@ Windows/Linux keys. On macOS, `Ctrl` becomes `Cmd` and `Alt` becomes `Option`.
 | Diff | `F7` / `Shift+F7` | Next / previous change |
 | Diff | `Ctrl+Alt+D` | Side by side / unified |
 | Diff | `Ctrl+Alt+W` | Toggle ignore whitespace |
+| Edit file | `Ctrl+S` / `Esc` | Save and close / close |
 | Commit | `Ctrl+M` (in Local changes) | Focus the commit message |
 | Commit | `Ctrl+Enter` | Commit |
 | Commit | `Ctrl+Alt+K` | Commit and push |

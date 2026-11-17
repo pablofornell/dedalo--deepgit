@@ -494,27 +494,6 @@ pub struct TextFile {
     pub too_large: bool,
 }
 
-/// One matching line of a search.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct SearchHit {
-    pub path: String,
-    /// 1-based.
-    pub line: u32,
-    /// 1-based, in characters.
-    pub column: u32,
-    /// The line, cut to 400 characters.
-    pub text: String,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct SearchResult {
-    /// At most 2 000 hits, sorted by path and line.
-    pub hits: Vec<SearchHit>,
-    pub truncated: bool,
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ConsoleEntry {

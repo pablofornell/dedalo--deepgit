@@ -108,7 +108,7 @@ export interface MockRepo {
   filePool: string[];
   /** The fake disk: path -> content of every worktree file (tracked, untracked or conflicted). Deleted files are absent. */
   worktree: Map<string, string>;
-  /** Paths of `worktree` that `.gitignore` hides: `list_files` and `search_files` leave them out. */
+  /** Paths of `worktree` that `.gitignore` hides: `list_files` leaves them out. */
   ignored: Set<string>;
   /** Bumped on every mutation of the commit graph / refs; invalidates ancestor caches. */
   version: number;

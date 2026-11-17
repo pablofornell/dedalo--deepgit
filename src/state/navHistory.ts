@@ -7,14 +7,12 @@
  * location between the stacks and return the location to show.
  */
 
-/** Where the user is: a main view, plus the commit selected in the log or the file open in the Files view. */
+/** Where the user is: a main view, plus the commit selected in the log. */
 export interface NavLocation {
-  /** The main view: "log", "changes" or "files". */
+  /** The main view: "log" or "changes". */
   view: string;
   /** Log view: the selected commit (`stash` is the index when the commit is a stash; it is not compared). */
   commit?: { repoId: string; oid: string; stash?: number };
-  /** Files view: the file in the active tab. */
-  file?: { repoId: string; path: string };
 }
 
 export const NAV_LIMIT = 100;
@@ -27,9 +25,7 @@ export function sameLocation(a: NavLocation | null | undefined, b: NavLocation |
     a.commit?.repoId === b.commit?.repoId &&
     a.commit?.oid === b.commit?.oid &&
     // A stash index shifts when another stash is pushed or dropped: the stash is the same place.
-    (a.commit?.stash === undefined) === (b.commit?.stash === undefined) &&
-    a.file?.repoId === b.file?.repoId &&
-    a.file?.path === b.file?.path
+    (a.commit?.stash === undefined) === (b.commit?.stash === undefined)
   );
 }
 

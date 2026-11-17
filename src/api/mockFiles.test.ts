@@ -2,8 +2,8 @@
 // The mock must refuse what the backend refuses: the file commands (crates/gitcore/tests/files.rs mirrors these).
 import { describe, expect, it } from "vitest";
 import { mockInvoke, mockListen } from "./mock";
-import { FIXED_FILES, SEARCH_TEXT_INVALID, appendIgnoreLines, byBytes, CHANGED_ON_DISK, ignoredEntries, initialWorktree, isBinary, listFiles, readText, searchFiles, versionOf } from "./mockFiles";
-import type { FileList, IgnoreFile, IgnoreTarget, SearchResult, TextFile, Workspace, WorkingTree } from "./types";
+import { FIXED_FILES, appendIgnoreLines, byBytes, CHANGED_ON_DISK, ignoredEntries, initialWorktree, isBinary, listFiles, readText, versionOf } from "./mockFiles";
+import type { FileList, IgnoreFile, IgnoreTarget, TextFile, Workspace, WorkingTree } from "./types";
 
 const call = <T>(cmd: string, args?: Record<string, unknown>) => mockInvoke(cmd, args) as Promise<T>;
 
@@ -27,8 +27,6 @@ async function repoNamed(name: string): Promise<string> {
 const write = (repoId: string, path: string, content: string, expectedVersion: string | null = null) =>
   call<string>("write_text_file", { repoId, path, content, expectedVersion });
 const read = (repoId: string, path: string) => call<TextFile>("read_text_file", { repoId, path });
-const search = (repoId: string, query: string, caseSensitive = true, regex = false) =>
-  call<SearchResult>("search_files", { repoId, query, caseSensitive, regex });
 
 describe("mock files: list", () => {
   it("lists the worktree files sorted by bytes and leaves out the ignored ones", async () => {
@@ -157,109 +155,6 @@ describe("mock files: write", () => {
   });
 });
 
-const createFile = (repoId: string, path: string) => call<void>("create_file", { repoId, path });
-const createDir = (repoId: string, path: string) => call<void>("create_dir", { repoId, path });
-const listed = async (repoId: string) => (await call<FileList>("list_files", { repoId })).files;
-const untracked = async (repoId: string) => (await call<WorkingTree>("working_tree", { repoId })).unstaged.filter((f) => f.status === "untracked").map((f) => f.path);
-
-const existingDirs = (repoId: string, paths: string[]) => call<string[]>("existing_dirs", { repoId, paths });
-
-describe("mock files: existing_dirs", () => {
-  it("keeps the folders that exist, empty ones included, and refuses bad paths", async () => {
-    const refunds = await repoNamed("refunds-worker");
-    await createDir(refunds, "made/inner");
-    await write(refunds, "afile.txt", "x");
-    expect(await existingDirs(refunds, ["made/", "made/inner/", "made/none/", "afile.txt", "afile.txt/", "src/"])).toEqual(["made/", "made/inner/", "src/"]);
-    expect(await rejected(existingDirs(refunds, ["../x/"]))).toEqual({ message: "path outside the repo: ../x" });
-    expect(await rejected(existingDirs(refunds, [".git/"]))).toEqual({ message: "path inside the git folder: .git" });
-  });
-});
-
-describe("mock files: create", () => {
-  it("makes an empty file with its parent folders, listed and untracked", async () => {
-    const refunds = await repoNamed("refunds-worker");
-    await createFile(refunds, "fresh/deep/new.txt");
-    expect(await read(refunds, "fresh/deep/new.txt")).toMatchObject({ content: "", binary: false });
-    expect(await listed(refunds)).toContain("fresh/deep/new.txt");
-    expect(await untracked(refunds)).toContain("fresh/deep/new.txt");
-  });
-
-  it("hides a new file that an ignore rule matches, like git does", async () => {
-    const api = await repoNamed("api-gateway");
-    await createFile(api, "debug-created.log");
-    expect(await listed(api)).not.toContain("debug-created.log");
-    expect(await untracked(api)).not.toContain("debug-created.log");
-    expect((await call<FileList>("list_files", { repoId: api })).ignored).toContain("debug-created.log");
-  });
-
-  it("makes an empty folder that git does not list, and refuses to make it twice", async () => {
-    const refunds = await repoNamed("refunds-worker");
-    await createDir(refunds, "empty/inner");
-    expect((await listed(refunds)).some((p) => p.startsWith("empty/"))).toBe(false);
-    expect(await rejected(createDir(refunds, "empty/inner"))).toEqual({ message: "empty/inner already exists." });
-    expect(await rejected(createDir(refunds, "empty"))).toEqual({ message: "empty already exists." });
-    expect(await rejected(createFile(refunds, "empty"))).toEqual({ message: "empty already exists." });
-    // A file can go in the empty folder.
-    await createFile(refunds, "empty/inner/x.txt");
-    expect(await listed(refunds)).toContain("empty/inner/x.txt");
-  });
-
-  it("refuses a name that exists and keeps the content", async () => {
-    const refunds = await repoNamed("refunds-worker");
-    await write(refunds, "keep.txt", "keep me");
-    expect(await rejected(createFile(refunds, "keep.txt"))).toEqual({ message: "keep.txt already exists." });
-    expect(await rejected(createDir(refunds, "keep.txt"))).toEqual({ message: "keep.txt already exists." });
-    expect(await rejected(createFile(refunds, "src"))).toEqual({ message: "src already exists." });
-    expect((await read(refunds, "keep.txt")).content).toBe("keep me");
-  });
-
-  it("refuses a file in the way of a parent folder", async () => {
-    const refunds = await repoNamed("refunds-worker");
-    await write(refunds, "inway.txt", "x");
-    const message = "inway.txt is a file, so inway.txt/x.txt cannot go inside it.";
-    expect(await rejected(createFile(refunds, "inway.txt/x.txt"))).toEqual({ message });
-    expect(await rejected(createDir(refunds, "inway.txt/x.txt"))).toEqual({ message });
-  });
-
-  it("refuses paths outside the repo, in the git folder, or with a bad name", async () => {
-    const refunds = await repoNamed("refunds-worker");
-    for (const make of [createFile, createDir]) {
-      expect(await rejected(make(refunds, "../x"))).toEqual({ message: "path outside the repo: ../x" });
-      expect(await rejected(make(refunds, "a/../../x"))).toEqual({ message: "path outside the repo: a/../../x" });
-      expect(await rejected(make(refunds, "/tmp/x"))).toEqual({ message: "path outside the repo: /tmp/x" });
-      expect(await rejected(make(refunds, ".git/hooks/x"))).toEqual({ message: "path inside the git folder: .git/hooks/x" });
-      expect(await rejected(make(refunds, ".GIT/x"))).toEqual({ message: "path inside the git folder: .GIT/x" });
-      expect(await rejected(make(refunds, ""))).toEqual({ message: "No file path given." });
-      for (const name of ["dir/", "a\\b", "nul\0name"]) expect(await rejected(make(refunds, name))).toEqual({ message: `not a valid name: ${name}` });
-    }
-    expect(await listed(refunds)).not.toContain("x");
-  });
-
-  it("refuses names that Windows reads as .git, stream names and parts that end with a dot or a space", async () => {
-    const refunds = await repoNamed("refunds-worker");
-    for (const make of [createFile, createDir]) {
-      for (const name of [".git.", ".git ", ".GIT. .", "a/.Git../x", "git~1", "GIT~1/x", "a/git~2"]) {
-        expect(await rejected(make(refunds, name))).toEqual({ message: `path inside the git folder: ${name}` });
-      }
-      for (const name of ["ab:c", "file::$DATA", "dir/a:b", "x./y", "x /y", "end.", "end "]) {
-        expect(await rejected(make(refunds, name))).toEqual({ message: `not a valid name: ${name}` });
-      }
-    }
-    expect(await listed(refunds)).not.toContain("end.");
-  });
-
-  it("emits repo-changed, so the tree refreshes", async () => {
-    const refunds = await repoNamed("refunds-worker");
-    const seen: unknown[] = [];
-    const off = mockListen("repo-changed", (p) => seen.push(p));
-    await createFile(refunds, "events-created.txt");
-    await createDir(refunds, "events-created-dir");
-    await new Promise((r) => setTimeout(r, 250));
-    off();
-    expect(seen.filter((p) => JSON.stringify(p) === JSON.stringify({ repoId: refunds })).length).toBeGreaterThanOrEqual(2);
-  });
-});
-
 const readIgnoreFile = (repoId: string, target: IgnoreTarget) => call<IgnoreFile>("read_ignore_file", { repoId, target });
 const readIgnore = async (repoId: string, target: IgnoreTarget) => (await readIgnoreFile(repoId, target)).content;
 const append = (repoId: string, target: IgnoreTarget, patterns: string[]) => call<string[]>("append_ignore_rules", { repoId, target, patterns });
@@ -338,76 +233,6 @@ describe("mock files: ignore files", () => {
   });
 });
 
-describe("mock files: search", () => {
-  it("matches a fixed string and counts the column in characters", async () => {
-    const web = await repoNamed("web-checkout");
-    await write(web, "uni.txt", "héllo zqUni\nsay zqUni\r\n");
-    const r = await search(web, "zqUni");
-    expect(r.hits).toEqual([
-      { path: "uni.txt", line: 1, column: 7, text: "héllo zqUni" },
-      { path: "uni.txt", line: 2, column: 5, text: "say zqUni" },
-    ]);
-    expect(r.truncated).toBe(false);
-  });
-
-  it("ignores case only when asked", async () => {
-    const web = await repoNamed("web-checkout");
-    await write(web, "notes.md", "zqtodo: one\nZqTodo two\nDONE\n");
-    expect((await search(web, "ZQTODO", false)).hits.map((h) => h.line)).toEqual([1, 2]);
-    expect((await search(web, "ZQTODO", true)).hits).toEqual([]);
-  });
-
-  it("takes a regex only when asked", async () => {
-    const web = await repoNamed("web-checkout");
-    await write(web, "lib.rs", "pub zqAlpha(x)\nlet zqbeta = 1;\n");
-    const hit = await search(web, "zq[A-Za-z]+\\(", true, true);
-    expect(hit.hits).toEqual([{ path: "lib.rs", line: 1, column: 5, text: "pub zqAlpha(x)" }]);
-    expect((await search(web, "zq[A-Za-z]+\\(", true, false)).hits).toEqual([]);
-  });
-
-  it("gives an error for an invalid regex", async () => {
-    const web = await repoNamed("web-checkout");
-    expect((await rejected(search(web, "[", true, true))).message).toMatch(/^fatal:/);
-  });
-
-  it("skips ignored and binary files", async () => {
-    const docs = await repoNamed("docs-site");
-    expect((await search(docs, "build started")).hits).toEqual([]);
-    await write(docs, "blob.dat", "zqBin\u0000");
-    expect((await search(docs, "zqBin")).hits).toEqual([]);
-  });
-
-  it("stops at 2 000 hits and says so", async () => {
-    const shared = await repoNamed("shared-proto");
-    await write(shared, "many.txt", "zqMany\n".repeat(2100));
-    const r = await search(shared, "zqMany");
-    expect(r.hits).toHaveLength(2000);
-    expect(r.truncated).toBe(true);
-  });
-
-  it("cuts a long line to 400 characters", async () => {
-    const docs = await repoNamed("docs-site");
-    await write(docs, "long.txt", `${"x".repeat(500)}zqEnd\n`);
-    const r = await search(docs, "zqEnd");
-    expect(r.hits).toHaveLength(1);
-    expect(r.hits[0].text).toHaveLength(400);
-    expect(r.hits[0].column).toBe(501);
-  });
-
-  it("refuses a line break or a NUL, and treats an empty query as no hits", async () => {
-    const web = await repoNamed("web-checkout");
-    expect(await rejected(search(web, "a\nb"))).toEqual({ message: SEARCH_TEXT_INVALID });
-    expect(await rejected(search(web, "a\u0000b"))).toEqual({ message: SEARCH_TEXT_INVALID });
-    expect(await search(web, "")).toEqual({ hits: [], truncated: false });
-  });
-
-  it("does not read the query as an option", async () => {
-    const web = await repoNamed("web-checkout");
-    await write(web, "opts.txt", "--zqVerbose flag\n");
-    expect((await search(web, "--zqVerbose")).hits).toHaveLength(1);
-  });
-});
-
 describe("mock files: rules", () => {
   it("orders by UTF-8 bytes, so U+FFFD comes before an emoji", () => {
     expect(byBytes("�", "\u{1F600}")).toBeLessThan(0);
@@ -415,19 +240,10 @@ describe("mock files: rules", () => {
     expect(byBytes("Zeta", "src")).toBeLessThan(0);
   });
 
-  it("caps the list and the hits and says so", () => {
+  it("caps the list and says so", () => {
     const files = new Map([["a", "x"], ["b", "x"], ["c", "x"]]);
     expect(listFiles(files, new Set(), 2)).toEqual({ files: ["a", "b"], ignored: [], truncated: true });
     expect(listFiles(files, new Set(["c"]), 2)).toEqual({ files: ["a", "b"], ignored: ["c"], truncated: false });
-    const lines = new Map([["a.txt", "hit\nhit\nhit"]]);
-    expect(searchFiles(lines, new Set(), "hit", true, false, 2)).toEqual({
-      hits: [
-        { path: "a.txt", line: 1, column: 1, text: "hit" },
-        { path: "a.txt", line: 2, column: 1, text: "hit" },
-      ],
-      truncated: true,
-    });
-    expect(searchFiles(lines, new Set(), "hit", true, false, 3).truncated).toBe(false);
   });
 
   it("makes versions that change with the text and carry its byte length", () => {

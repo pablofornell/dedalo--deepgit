@@ -932,6 +932,12 @@ export async function addToIgnore(repoId: string, items: { path: string; isDir: 
   await showDialog("ignore", { repoId, items });
 }
 
+/** Opens the quick editor for a working tree file (dialog "quickEdit"). The backend refreshes the status when it saves. */
+export async function editFile(repoId: string, path: string): Promise<void> {
+  if (!repoById(repoId)) return;
+  await showDialog("quickEdit", { repoId, path });
+}
+
 /** Renames a project (dialog "renameProject"; the active project when no id is given). The sidebar card renames in place instead. */
 export async function renameProject(projectId?: string): Promise<void> {
   const id = projectId ?? activeProject()?.id;

@@ -10,7 +10,7 @@ use gitcore::{
     CommitDetails, CommitRow, ConflictEntry, ConflictSide, ConflictVersions, DiffSpec, FileDiff,
     FileImages, FileList, Git, HunkRef, IgnoreFile, IgnoreTarget, InitInfo, LogQuery,
     LogSessionInfo, MergeOpts, OpResult, Project, Refs, RepoChanged, RepoInfo, RepoSummary,
-    ResetMode, SearchResult, StashUntracked, TextFile, WorkingTree, Workspace,
+    ResetMode, StashUntracked, TextFile, WorkingTree, Workspace,
 };
 use gitcore::{AuthMode, GitError};
 use tauri::{AppHandle, Emitter, State};
@@ -313,20 +313,6 @@ pub async fn read_ignore_file(
 }
 
 #[tauri::command]
-pub async fn search_files(
-    state: St<'_>,
-    repo_id: String,
-    query: String,
-    case_sensitive: bool,
-    regex: bool,
-) -> Res<SearchResult> {
-    read(&state, &repo_id, move |g, r| {
-        gitfiles::search_files(g, r, &query, case_sensitive, regex)
-    })
-    .await
-}
-
-#[tauri::command]
 pub async fn last_commit_message(state: St<'_>, repo_id: String) -> Res<String> {
     read(&state, &repo_id, diff::last_commit_message).await
 }
@@ -426,33 +412,6 @@ pub async fn write_text_file(
 ) -> Res<String> {
     write(&app, &state, &repo_id, move |g, r| {
         gitfiles::write_text_file(g, r, &path, &content, expected_version.as_deref())
-    })
-    .await
-}
-
-/// JS: `{ repoId, path }`. Creates an empty file and the folders above it. Fails when the name exists.
-#[tauri::command]
-pub async fn create_file(app: AppHandle, state: St<'_>, repo_id: String, path: String) -> Res<()> {
-    write(&app, &state, &repo_id, move |g, r| {
-        gitfiles::create_file(g, r, &path)
-    })
-    .await
-}
-
-/// JS: `{ repoId, path }`. Creates an empty folder and the folders above it. Fails when the name exists.
-#[tauri::command]
-pub async fn create_dir(app: AppHandle, state: St<'_>, repo_id: String, path: String) -> Res<()> {
-    write(&app, &state, &repo_id, move |g, r| {
-        gitfiles::create_dir(g, r, &path)
-    })
-    .await
-}
-
-/// JS: `{ repoId, paths }`. Returns the paths that are folders on the disk now.
-#[tauri::command]
-pub async fn existing_dirs(state: St<'_>, repo_id: String, paths: Vec<String>) -> Res<Vec<String>> {
-    read(&state, &repo_id, move |g, r| {
-        gitfiles::existing_dirs(g, r, &paths)
     })
     .await
 }
