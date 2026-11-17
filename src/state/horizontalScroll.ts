@@ -3,12 +3,12 @@
  * (no DOM, no store), so it is tested under node. `DiffViewer.tsx` calls `scaledHorizontalWheel`; `settings.ts` stores
  * the percent.
  *
- * The setting is a percent (25..300, step 5, default 100 = the browser's own response, i.e. 0.25x..3x), like the UI
+ * The setting is a percent (25..1000, step 5, default 100 = the browser's own response, i.e. 0.25x..10x), like the UI
  * scale: whole numbers keep the slider, the number box and the stored value free of float noise.
  */
 
 export const H_SCROLL_MIN = 25;
-export const H_SCROLL_MAX = 300;
+export const H_SCROLL_MAX = 1000;
 export const H_SCROLL_STEP = 5;
 export const H_SCROLL_DEFAULT = 100;
 
@@ -28,19 +28,41 @@ export interface WheelLike {
   shiftKey: boolean;
 }
 
+/** The scroll that one wheel event should do after the sensitivity: `x` is scaled, `y` is the vertical part in px. */
+export interface ScaledWheel {
+  x: number;
+  y: number;
+}
+
 /**
- * The horizontal distance in px that a wheel event should scroll after applying the sensitivity, or `null` when the
- * event is not a horizontal one or when the sensitivity is 100 (the browser then scrolls by itself, exactly as before).
+ * The scroll that a wheel event should do after applying the sensitivity, or `null` when the event is not a horizontal
+ * one or when the sensitivity is 100 (the browser then scrolls by itself, exactly as before).
  *
- * A wheel event is horizontal when `deltaX` is the larger part, or when Shift is held and the wheel turns vertically
- * (Shift + wheel is a horizontal scroll). `lineHeight` and `pageWidth` (px) convert line and page deltas.
+ * A wheel event is horizontal when Shift is held (Shift + wheel is a horizontal scroll: the larger axis is used, as
+ * WebKit may already have swapped them), or when `deltaX` is at least as large as `deltaY`. Trackpads send both axes
+ * for a small wrist swipe, and the old strict test (`|deltaX| > |deltaY|`) let the even ones scroll at 1x. The vertical
+ * part of a diagonal swipe is kept in `y`, so the caller can scroll it too after it cancels the native scroll.
+ * `lineHeight`, `pageWidth` and `pageHeight` (px) convert line and page deltas.
  */
-export function scaledHorizontalWheel(e: WheelLike, percent: number, lineHeight: number, pageWidth: number): number | null {
+export function scaledHorizontalWheel(
+  e: WheelLike,
+  percent: number,
+  lineHeight: number,
+  pageWidth: number,
+  pageHeight = pageWidth,
+): ScaledWheel | null {
   const factor = sanitizeHScrollSensitivity(percent) / 100;
   if (factor === 1) return null;
-  const shiftWheel = e.shiftKey && e.deltaX === 0 && e.deltaY !== 0;
-  const raw = shiftWheel ? e.deltaY : Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : 0;
+  const toPx = (d: number, page: number) => (e.deltaMode === 1 ? d * lineHeight : e.deltaMode === 2 ? d * page : d);
+  let raw: number;
+  let vertical = 0;
+  if (e.shiftKey) {
+    raw = Math.abs(e.deltaX) >= Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+  } else if (e.deltaX !== 0 && Math.abs(e.deltaX) >= Math.abs(e.deltaY)) {
+    raw = e.deltaX;
+    vertical = e.deltaY;
+  } else return null;
   if (raw === 0) return null;
-  const px = e.deltaMode === 1 ? raw * lineHeight : e.deltaMode === 2 ? raw * pageWidth : raw;
-  return px * factor;
+  // `+ 0` turns -0 into 0
+  return { x: toPx(raw, pageWidth) * factor, y: toPx(vertical, pageHeight) + 0 };
 }

@@ -1,5 +1,5 @@
 /**
- * The find and replace widget of the file editor. It floats at the top right of the editor, over the text.
+ * The find and replace widget of the quick editor. It floats at the top right of the editor, over the text.
  *
  * `@codemirror/search` keeps the query, finds the matches and highlights them. This module only supplies the panel
  * (`search({ createPanel })`) and the key bindings. The panel is a small Solid component rendered into the panel DOM.
@@ -114,7 +114,7 @@ export function findExtension(): Extension {
 
 function createFindPanel(view: EditorView): Panel {
   const dom = document.createElement("div");
-  dom.className = "dg-fe-find-host";
+  dom.className = "dg-qe-find-host";
 
   // The signals and memos live in their own root, so the panel owns them and not the effect that was running when CodeMirror made it.
   const ui = createRoot((disposeRoot) => {
@@ -153,7 +153,7 @@ function createFindPanel(view: EditorView): Panel {
   const toggle = (key: keyof FindOptions, label: string, tipText: string, shortcut: string, content: string, extra = "") => (
     <button
       type="button"
-      class={`dg-fe-find-opt${extra}`}
+      class={`dg-qe-find-opt${extra}`}
       classList={{ "is-on": spec()[key] }}
       aria-pressed={spec()[key]}
       aria-label={label}
@@ -180,11 +180,11 @@ function createFindPanel(view: EditorView): Panel {
 
   const dispose = render(
     () => (
-      <div class="dg-fe-find" classList={{ "is-expanded": expanded() && !readOnly() }} role="search">
-        <Show when={!readOnly()} fallback={<span class="dg-fe-find-expand is-hidden" />}>
+      <div class="dg-qe-find" classList={{ "is-expanded": expanded() && !readOnly() }} role="search">
+        <Show when={!readOnly()} fallback={<span class="dg-qe-find-expand is-hidden" />}>
           <button
             type="button"
-            class="dg-fe-find-expand"
+            class="dg-qe-find-expand"
             classList={{ "is-on": expanded() }}
             aria-expanded={expanded()}
             aria-label="Toggle replace"
@@ -194,13 +194,13 @@ function createFindPanel(view: EditorView): Panel {
             <Icon name="chevronRight" size={14} />
           </button>
         </Show>
-        <div class="dg-fe-find-rows">
-          <div class="dg-fe-find-row">
-            <div class="dg-fe-find-field">
+        <div class="dg-qe-find-rows">
+          <div class="dg-qe-find-row">
+            <div class="dg-qe-find-field">
               <input
                 ref={findInput}
                 main-field="true"
-                class="dg-fe-find-input"
+                class="dg-qe-find-input"
                 classList={{ "is-error": bad() }}
                 type="text"
                 name="search"
@@ -211,23 +211,23 @@ function createFindPanel(view: EditorView): Panel {
                 value={spec().search}
                 onInput={(e) => commitQuery(view, withQuery(spec(), { search: e.currentTarget.value }), true)}
               />
-              <div class="dg-fe-find-opts">
+              <div class="dg-qe-find-opts">
                 {toggle("caseSensitive", "Match case", "Match case", "Alt+C", "Aa")}
                 {toggle("wholeWord", "Match whole word", "Match whole word", "Alt+W", "ab", " is-word")}
                 {toggle("regexp", "Use regular expression", "Use regular expression", "Alt+R", ".*")}
               </div>
             </div>
-            <span class="dg-fe-find-count" classList={{ "is-error": bad() }} role="status" aria-live="polite">{text()}</span>
+            <span class="dg-qe-find-count" classList={{ "is-error": bad() }} role="status" aria-live="polite">{text()}</span>
             <IconButton icon="arrowUp" label="Previous match" shortcut="Shift+Enter" onClick={() => findPrevious(view)} />
             <IconButton icon="arrowDown" label="Next match" shortcut="Enter" onClick={() => findNext(view)} />
             <IconButton icon="close" label="Close" shortcut="Escape" onClick={() => closeSearchPanel(view)} />
           </div>
           <Show when={expanded() && !readOnly()}>
-            <div class="dg-fe-find-row">
-              <div class="dg-fe-find-field">
+            <div class="dg-qe-find-row">
+              <div class="dg-qe-find-field">
                 <input
                   ref={replaceInput}
-                  class="dg-fe-find-input is-plain"
+                  class="dg-qe-find-input is-plain"
                   type="text"
                   name="replace"
                   placeholder="Replace"

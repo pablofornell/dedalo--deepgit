@@ -370,6 +370,16 @@ export function CommitDetails(): JSX.Element {
 
   const fileMenu = (f: FileChange): MenuItem[] => [
     { label: "Show file changes", icon: "sideBySide", onSelect: () => openFile(f) },
+    {
+      label: "Edit file",
+      icon: "edit",
+      disabled: f.status === "deleted",
+      tooltip: f.status === "deleted" ? "The commit deleted this file." : "Opens the working tree version of the file.",
+      onSelect: () => {
+        const d = details();
+        if (d) void actions.editFile(d.repoId, f.path);
+      },
+    },
     { separator: true },
     { label: "Copy path", icon: "copy", onSelect: () => void copy(f.path, "path") },
     { label: "Copy file name", onSelect: () => void copy(splitPath(f.path).name, "file name") },

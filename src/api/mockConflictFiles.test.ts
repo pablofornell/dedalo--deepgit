@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { parseConflicts, resolveAll } from "../features/files/conflictHunks";
+import { parseConflicts, resolveAll } from "../features/quickedit/conflictHunks";
 import { mockInvoke } from "./mock";
 import type { TextFile, Workspace, WorkingTree } from "./types";
 

@@ -1,28 +1,22 @@
-//! Project files: list, read, write and search the files of the worktree. Every path is relative
-//! to the repo root. The search skips ignored files, and the list keeps them apart in `ignored`.
+//! Project files: list, read and write the files of the worktree. Every path is relative
+//! to the repo root. The list keeps the ignored files apart in `ignored`.
 //! Read and write still accept a path to an ignored file. The ignore file functions are the only
 //! ones that touch `.git/info/exclude`.
 
 use std::collections::{BTreeSet, HashSet};
+use std::io::Read;
 use std::io::Write;
-use std::io::{ErrorKind, Read};
 use std::path::{Component, Path, PathBuf};
 
 use crate::conflicts::write_worktree_file;
 use crate::diff::{worktree_path, MAX_CONTENT_BYTES};
 use crate::error::GitError;
-use crate::model::{
-    FileList, IgnoreFile, IgnoreTarget, RepoInfo, SearchHit, SearchResult, TextFile,
-};
+use crate::model::{FileList, IgnoreFile, IgnoreTarget, RepoInfo, TextFile};
 use crate::ops::check_rel;
-use crate::runner::{command_error, Git};
+use crate::runner::Git;
 
 /// `list_files` returns at most this many paths.
 pub const MAX_LISTED_FILES: usize = 100_000;
-/// `search_files` returns at most this many hits.
-pub const MAX_HITS: usize = 2_000;
-/// A hit shows at most this many characters of its line.
-pub const MAX_HIT_CHARS: usize = 400;
 /// Treat a file with a NUL byte in its first bytes as binary (the rule of git).
 const BINARY_SCAN_BYTES: usize = 8000;
 
@@ -215,134 +209,6 @@ fn changed_on_disk() -> GitError {
     GitError::Invalid("The file changed on disk. Reload it before you save.".to_string())
 }
 
-/// Create a new empty file in the worktree. Make the missing folders above it. Refuse a name that
-/// exists (a file, a folder or a symlink), a path outside the repo, a path into the git folder, and
-/// a name that ends with a separator or holds a backslash. The git folder rule also covers the
-/// names that Windows reads as `.git` (`.git.`, `.git `, `git~1`), and a name with `:` or a part
-/// that ends with a dot or a space is refused.
-pub fn create_file(_git: &Git, repo: &RepoInfo, path: &str) -> Result<(), GitError> {
-    let full = new_entry_path(repo, path)?;
-    make_parents(repo, &full, path)?;
-    match std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&full)
-    {
-        Ok(_) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(already_exists(path)),
-        Err(e) => Err(e.into()),
-    }
-}
-
-/// Create a new empty folder in the worktree. Make the missing folders above it. The same
-/// refusals as [`create_file`]. Git does not track an empty folder, so it shows in no status.
-pub fn create_dir(_git: &Git, repo: &RepoInfo, path: &str) -> Result<(), GitError> {
-    let full = new_entry_path(repo, path)?;
-    make_parents(repo, &full, path)?;
-    match std::fs::create_dir(&full) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(already_exists(path)),
-        Err(e) => Err(e.into()),
-    }
-}
-
-/// The paths of `paths` that are real folders in the worktree now (a symlink is not one). A path
-/// may end with "/". The answer keeps the paths as they were given. A path outside the repo or in
-/// the git folder is refused. The tree uses this to forget a new folder that is gone from the disk.
-pub fn existing_dirs(
-    _git: &Git,
-    repo: &RepoInfo,
-    paths: &[String],
-) -> Result<Vec<String>, GitError> {
-    let mut out = Vec::new();
-    for path in paths {
-        let trimmed = path.trim_end_matches('/');
-        check_path(trimmed)?;
-        let full = worktree_path(repo, trimmed)?;
-        if std::fs::symlink_metadata(&full).is_ok_and(|m| m.is_dir()) {
-            out.push(path.clone());
-        }
-    }
-    Ok(out)
-}
-
-fn already_exists(path: &str) -> GitError {
-    GitError::Invalid(format!("{path} already exists."))
-}
-
-/// The full path of a new file or folder. Check the name, keep the path inside the repo, and refuse
-/// an entry that is there already.
-fn new_entry_path(repo: &RepoInfo, path: &str) -> Result<PathBuf, GitError> {
-    check_path(path)?;
-    if path.ends_with('/') || path.contains(['\\', '\0']) {
-        return Err(GitError::Invalid(format!("not a valid name: {path}")));
-    }
-    check_new_parts(path)?;
-    let full = worktree_path(repo, path)?;
-    match std::fs::symlink_metadata(&full) {
-        Ok(_) => Err(already_exists(path)),
-        // A file above the name gives NotADirectory. `make_parents` words that error.
-        Err(e) if matches!(e.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) => Ok(full),
-        Err(e) => Err(e.into()),
-    }
-}
-
-/// Refuse a new name that Windows would turn into the git folder or into something else: a part
-/// that is `.git` once the dots and spaces at its end are cut, a part that starts with `git~` (a
-/// short name of `.git`), a part with `:` (a stream name) and a part that ends with a dot or a
-/// space. The checks are the same on every system, so a repo works on all of them.
-fn check_new_parts(path: &str) -> Result<(), GitError> {
-    let parts: Vec<String> = Path::new(path)
-        .components()
-        .filter_map(|c| match c {
-            Component::Normal(n) => Some(n.to_string_lossy().into_owned()),
-            _ => None,
-        })
-        .collect();
-    let git_folder = |p: &String| {
-        let lower = p.trim_end_matches(['.', ' ']).to_ascii_lowercase();
-        lower == ".git" || lower.starts_with("git~")
-    };
-    if parts.iter().any(git_folder) {
-        return Err(GitError::Invalid(format!(
-            "path inside the git folder: {path}"
-        )));
-    }
-    if parts
-        .iter()
-        .any(|p| p.contains(':') || p.ends_with(['.', ' ']))
-    {
-        return Err(GitError::Invalid(format!("not a valid name: {path}")));
-    }
-    Ok(())
-}
-
-/// Make the folders above `full`. Refuse a path that goes through a file or a symlink to a file.
-fn make_parents(repo: &RepoInfo, full: &Path, path: &str) -> Result<(), GitError> {
-    let Some(parent) = full.parent() else {
-        return Ok(());
-    };
-    let root = Path::new(&repo.path);
-    let mut walk = root.to_path_buf();
-    for part in parent.strip_prefix(root).unwrap_or(Path::new("")).iter() {
-        walk.push(part);
-        match std::fs::metadata(&walk) {
-            Ok(m) if m.is_dir() => {}
-            Ok(_) => {
-                let shown = walk.strip_prefix(root).unwrap_or(&walk).to_string_lossy();
-                return Err(GitError::Invalid(format!(
-                    "{} is a file, so {path} cannot go inside it.",
-                    shown.replace('\\', "/")
-                )));
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => break,
-            Err(e) => return Err(e.into()),
-        }
-    }
-    std::fs::create_dir_all(parent)?;
-    Ok(())
-}
-
 /// Read the text of an ignore file, and the case rule of the repo (`core.ignorecase`, false when unset).
 /// A missing file gives an empty text. Refuse a symlink and a folder, and a file over 2 MiB.
 pub fn read_ignore_file(
@@ -472,93 +338,6 @@ fn ignore_label(target: IgnoreTarget) -> String {
     }
 }
 
-/// Search the tracked and untracked files that are not ignored. With `regex`, the query is a POSIX
-/// extended regex (`git grep -E`). Otherwise the query matches as plain text (`-F`). Each matching
-/// line gives one hit, at the column of its first match. Sort the hits by path and line.
-pub fn search_files(
-    git: &Git,
-    repo: &RepoInfo,
-    query: &str,
-    case_sensitive: bool,
-    regex: bool,
-) -> Result<SearchResult, GitError> {
-    if query.contains(['\0', '\n', '\r']) {
-        return Err(GitError::Invalid(
-            "The search text cannot contain a line break or a NUL character.".to_string(),
-        ));
-    }
-    let none = SearchResult {
-        hits: Vec::new(),
-        truncated: false,
-    };
-    if query.is_empty() {
-        return Ok(none);
-    }
-    let root = Path::new(&repo.path);
-    let mut args = vec![
-        "grep",
-        "-n",
-        "--column",
-        "-I",
-        "--no-color",
-        "-z",
-        "--untracked",
-        "--exclude-standard",
-    ];
-    if !case_sensitive {
-        args.push("-i");
-    }
-    args.push(if regex { "-E" } else { "-F" });
-    args.extend(["-e", query, "--"]);
-    let out = git.run_unchecked(root, Some(&repo.id), &args, false, None)?;
-    match out.code {
-        0 => {}
-        // No match
-        1 => return Ok(none),
-        _ => return Err(command_error(root, &args, &out)),
-    }
-    let mut hits = parse_hits(&out.stdout)?;
-    hits.sort_by(|a, b| a.path.cmp(&b.path).then(a.line.cmp(&b.line)));
-    let truncated = hits.len() > MAX_HITS;
-    hits.truncate(MAX_HITS);
-    Ok(SearchResult { hits, truncated })
-}
-
-/// Parse `git grep -n --column -z` output. Each hit is `path NUL line NUL column NUL text LF`.
-fn parse_hits(text: &str) -> Result<Vec<SearchHit>, GitError> {
-    let bad = || GitError::Parse("git grep output".to_string());
-    let mut hits = Vec::new();
-    let mut rest = text;
-    while !rest.is_empty() {
-        let (path, r) = rest.split_once('\0').ok_or_else(bad)?;
-        let (line, r) = r.split_once('\0').ok_or_else(bad)?;
-        let (column, r) = r.split_once('\0').ok_or_else(bad)?;
-        let (line_text, next) = r.split_once('\n').unwrap_or((r, ""));
-        rest = next;
-        let line: u32 = line.parse().map_err(|_| bad())?;
-        let byte_column: usize = column.parse().map_err(|_| bad())?;
-        let line_text = line_text.strip_suffix('\r').unwrap_or(line_text);
-        hits.push(SearchHit {
-            path: path.to_string(),
-            line,
-            column: char_column(line_text, byte_column),
-            text: line_text.chars().take(MAX_HIT_CHARS).collect(),
-        });
-    }
-    Ok(hits)
-}
-
-/// Convert git's 1-based byte column to a 1-based character column of `text`.
-fn char_column(text: &str, byte_column: usize) -> u32 {
-    let end = byte_column.saturating_sub(1).min(text.len());
-    // Count the bytes that are not continuation bytes (10xxxxxx). Each one starts a character.
-    let before = text.as_bytes()[..end]
-        .iter()
-        .filter(|b| **b & 0xC0 != 0x80)
-        .count();
-    before as u32 + 1
-}
-
 /// Make a version of some bytes: the SHA-1 in hex, a dash and the length. Use SHA-1 because its
 /// output does not change between Rust releases.
 fn version_of(bytes: &[u8]) -> String {
@@ -662,28 +441,6 @@ mod tests {
         assert_eq!(read, 4);
         let (_, full, _) = collect(2, &["a/", "a/x.o", "b.o"]);
         assert!(!full);
-    }
-
-    #[test]
-    fn column_counts_characters_not_bytes() {
-        // "héllo needle": git says byte 8 (é takes two bytes); the character column is 7.
-        assert_eq!(char_column("héllo needle", 8), 7);
-        assert_eq!(char_column("needle", 1), 1);
-        // A column past the end never panics.
-        assert_eq!(char_column("ab", 99), 3);
-    }
-
-    #[test]
-    fn parses_hits_with_nul_separated_fields() {
-        let hits = parse_hits("a.txt\x001\x003\x00x needle\r\nb/c.txt\x0012\x001\x00needle\n")
-            .expect("parse");
-        assert_eq!(hits.len(), 2);
-        assert_eq!(hits[0].path, "a.txt");
-        assert_eq!(hits[0].line, 1);
-        assert_eq!(hits[0].column, 3);
-        assert_eq!(hits[0].text, "x needle");
-        assert_eq!(hits[1].path, "b/c.txt");
-        assert_eq!(hits[1].line, 12);
     }
 
     #[test]

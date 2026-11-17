@@ -9,7 +9,6 @@ import {
 import { keysFor, register, unregister } from "../../state/keymap";
 import { anyRepoVersion } from "../../state/events";
 import { summary, projectRepos, repoById, selectedRepoIds } from "../../state/workspace";
-import { inFilesEditor } from "../files/focus";
 import { segments } from "./fuzzy";
 import { TABS, type Scope, cycleTab, parseQuery, placeholderFor } from "./query";
 import { loadRecent, saveRecent, withRecent } from "./recent";
@@ -76,7 +75,7 @@ export function SearchEverywhere(): JSX.Element {
       if (hasOpenDialog()) return false;
       openSearchEverywhere("commits");
       return true;
-    }, { title: "Go to commit / hash…", group: "Log", when: () => hasProject() && !inFilesEditor(), allowInInput: true }),
+    }, { title: "Go to commit / hash…", group: "Log", when: hasProject, allowInInput: true }),
     register("palette.actions", "Ctrl+Shift+A", () => {
       if (hasOpenDialog()) return false;
       openSearchEverywhere("actions");

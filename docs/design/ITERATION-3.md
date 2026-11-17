@@ -6,6 +6,8 @@ This document uses ASD-STE100 Simplified Technical English.
 Each instruction is one sentence. "Must" is a requirement. "Can" is an option.
 It adds to `DESIGN.md`. When the two do not agree, this document is correct for the 13 items below.
 
+Update: the Files tab (sections 8 and 9) was removed. The quick editor (`DESIGN.md` 5.11, "Quick editor") replaces it. The find and replace widget (section 10) now lives in that editor.
+
 Rules for implementers:
 
 1. Use only tokens from `src/theme/tokens.css`, `src/theme/extra.css` and `src/theme/colors.css`.

@@ -57,8 +57,21 @@ export function AlertsWidget(): JSX.Element {
 
   /** Dismisses a row; the focus goes to the next row, or to the previous one when it was the last. */
   const dismissRow = (id: string, index: number) => {
+    const wasLast = alerts().length <= 1;
     dismiss(id);
-    focusRow(index);
+    if (wasLast) closeEmptied();
+    else focusRow(index);
+  };
+
+  /** The user emptied the list (last row, Dismiss all): close the popover and give the focus back to the widget. */
+  const closeEmptied = () => {
+    setOpen(false);
+    setTimeout(() => widget?.focus(), 0);
+  };
+
+  const clearAll = () => {
+    dismissAll();
+    closeEmptied();
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
@@ -77,7 +90,7 @@ export function AlertsWidget(): JSX.Element {
       focusRow(n - 1);
     } else if (e.key === "Delete" && e.shiftKey) {
       e.preventDefault();
-      dismissAll();
+      clearAll();
     } else if (e.key === "Delete") {
       e.preventDefault();
       const a = alerts()[active()];
@@ -115,7 +128,7 @@ export function AlertsWidget(): JSX.Element {
       <Popup open={open()} anchor={() => widget} placement="top-end" onClose={() => setOpen(false)} class="dg-alerts-pop" label="Alerts">
         <div class="dg-alerts-head">
           <span class="dg-alerts-title">Alerts · {activeProject()?.name ?? ""}</span>
-          <Button variant="ghost" size="small" disabled={alerts().length === 0} onClick={() => dismissAll()}>
+          <Button variant="ghost" size="small" disabled={alerts().length === 0} onClick={clearAll}>
             Dismiss all
           </Button>
         </div>

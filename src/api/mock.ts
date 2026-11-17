@@ -16,7 +16,7 @@ import {
 import { buildFileDiff, fileText, toFileChange } from "./mockDiff";
 import { isImagePath } from "./imageFiles";
 import { mockFileImages } from "./mockImages";
-import { CHANGED_ON_DISK, appendIgnoreLines, createEntryError, fileKey, folderChain, filePathError, ignorePatternError, isFolder, listFiles, readText, searchFiles, versionOf } from "./mockFiles";
+import { CHANGED_ON_DISK, appendIgnoreLines, fileKey, filePathError, ignorePatternError, isFolder, listFiles, readText, versionOf } from "./mockFiles";
 import { uniqueProjectName, validateProjectName } from "./projectName";
 import { validateRefName } from "../features/dialogs/refname";
 import { acceptedTextOf, entryOf, genericConflicts, currentOids, hasStage, isTextConflict, markerLabels, sideStages, versionsOf, worktreeTextOf, type MockConflict } from "./mockConflicts";
@@ -879,24 +879,18 @@ const handlers: Record<string, Handler> = {
   },
   read_text_file: (a) => {
     const repo = repoOf(a.repoId);
-    const key = readableFile(repo, stringArg(a, "path", "read_text_file"));
-    return readText(repo.worktree.get(key) ?? "");
+    const path = stringArg(a, "path", "read_text_file");
+    const key = readableFile(repo, path);
+    const text = repo.worktree.get(key) ?? "";
+    // A real picture holds NUL bytes, so the backend reads it as binary. An SVG is text.
+    const picture = isImagePath(path) && !path.toLowerCase().endsWith(".svg");
+    return picture ? { content: "", version: versionOf(text), binary: true, tooLarge: false } : readText(text);
   },
   read_ignore_file: (a, c) => {
     const repo = repoOf(a.repoId);
     const target = ignoreTargetArg(a, "read_ignore_file");
     if (target === "exclude") c.git(repo, ["rev-parse", "--git-path", "info/exclude"]);
     return { content: ignoreText(repo, target), ignoreCase: false } satisfies IgnoreFile;
-  },
-  search_files: (a, c) => {
-    const repo = repoOf(a.repoId);
-    const query = stringArg(a, "query", "search_files");
-    const caseSensitive = bool(a.caseSensitive);
-    const regex = bool(a.regex);
-    // Run git only for a usable, non-empty query. A bad regex fails in searchFiles, before the console entry.
-    const result = searchFiles(repo.worktree, repo.ignored, query, caseSensitive, regex);
-    if (query !== "") c.git(repo, ["grep", "-n", "--column", "-I", "--no-color", "-z", "--untracked", "--exclude-standard", ...(caseSensitive ? [] : ["-i"]), regex ? "-E" : "-F", "-e", query, "--"]);
-    return result;
   },
   last_commit_message: (a, c) => {
     const repo = repoOf(a.repoId);
@@ -960,40 +954,6 @@ const handlers: Record<string, Handler> = {
     repo.worktree.set(key, content);
     emitChanged(repo);
     return versionOf(content);
-  },
-  create_file: (a) => {
-    const repo = repoOf(a.repoId);
-    const path = stringArg(a, "path", "create_file");
-    const refused = createEntryError(repo.worktree, emptyDirsOf(repo), path);
-    if (refused !== null) fail(refused);
-    const key = fileKey(path);
-    repo.worktree.set(key, "");
-    // The new file is untracked, unless a rule ignores it. Git hides an ignored file.
-    const rules = ignore({ ignorecase: false }).add(ignoreText(repo, "gitignore")).add(ignoreText(repo, "exclude"));
-    if (rules.ignores(key)) repo.ignored.add(key);
-    else if (![...repo.wt.staged, ...repo.wt.unstaged, ...repo.wt.conflicted].some((f) => f.path === key)) {
-      repo.wt.unstaged.push({ path: key, oldPath: null, status: "untracked", additions: 0, deletions: 0, binary: false });
-    }
-    emitChanged(repo);
-  },
-  create_dir: (a) => {
-    const repo = repoOf(a.repoId);
-    const path = stringArg(a, "path", "create_dir");
-    const empty = emptyDirsOf(repo);
-    const refused = createEntryError(repo.worktree, empty, path);
-    if (refused !== null) fail(refused);
-    for (const dir of folderChain(path)) empty.add(dir);
-    emitChanged(repo);
-  },
-  existing_dirs: (a) => {
-    const repo = repoOf(a.repoId);
-    const empty = emptyDirsOf(repo);
-    return stringList(a, "paths", "existing_dirs").filter((path) => {
-      const refused = filePathError(path.replace(/\/+$/, ""));
-      if (refused !== null) fail(refused);
-      const key = fileKey(path);
-      return key === "" || empty.has(key) || isFolder(repo.worktree, key);
-    });
   },
   append_ignore_rules: (a, c) => {
     const repo = repoOf(a.repoId);
@@ -1683,15 +1643,6 @@ function stashRestore(a: Args, c: Ctx, drop: boolean): OpResult {
 
 /** The text of `.git/info/exclude` of each mock repo. A repo that is not here has an empty file. */
 const excludeTexts = new WeakMap<MockRepo, string>();
-
-/** The folders of each mock repo that exist with no file in them. Git does not list them, so `list_files` does not either. */
-const emptyDirs = new WeakMap<MockRepo, Set<string>>();
-
-function emptyDirsOf(repo: MockRepo): Set<string> {
-  let set = emptyDirs.get(repo);
-  if (!set) emptyDirs.set(repo, (set = new Set()));
-  return set;
-}
 
 function ignoreText(repo: MockRepo, target: IgnoreTarget): string {
   return target === "gitignore" ? (repo.worktree.get(".gitignore") ?? "") : (excludeTexts.get(repo) ?? "");

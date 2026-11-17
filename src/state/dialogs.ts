@@ -188,6 +188,12 @@ export interface MergeFileResult {
   resolved: boolean;
 }
 
+export interface QuickEditProps {
+  repoId: string;
+  /** Path of the working tree file, relative to the repo. */
+  path: string;
+}
+
 export interface IgnoreProps {
   repoId: string;
   /** The files and folders to ignore. `path` is relative to the repo. */
@@ -229,6 +235,7 @@ export interface DialogRegistry {
   auth: { props: AuthProps; result: AuthDialogResult };
   conflicts: { props: ConflictsProps; result: ConflictsResult };
   mergeFile: { props: MergeFileProps; result: MergeFileResult };
+  quickEdit: { props: QuickEditProps; result: void };
   renameProject: { props: RenameProjectProps; result: RenameProjectResult };
   ignore: { props: IgnoreProps; result: IgnoreResult };
   initRepository: { props: InitRepositoryProps; result: InitRepositoryResult };

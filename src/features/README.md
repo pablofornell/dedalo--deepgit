@@ -18,6 +18,7 @@ Each folder in `src/features/` is one feature with **one root component** (names
 | `settings/` | `SettingsDialog`, `registerSettings()`, `SettingsHost` | Settings window and zoom keys. Sections are plain files, see "Settings sections" below. |
 | `dialogs/` | `registerAllDialogs()` | Add `registerDialog(name, Component)` lines. |
 | `merge/` | `registerMergeDialogs()` | No tab of its own: dialogs `conflicts` (`ConflictsDialog`) and `mergeFile` (`MergeFileDialog`), registered from `App`, opened with `actions.openConflicts` / `actions.openMerge`. It also reads `features/diff/syntax.ts` and `wordDiff.ts` (allowed here: they are pure helpers). See "Merge conflicts" below. |
+| `quickedit/` | `QuickEditDialog` | No tab of its own: the dialog `quickEdit`, a small editor for one working tree file (a README, a config file), like "Edit file" on GitHub. Registered lazily by `dialogs/index.ts` (the editor pulls in CodeMirror), opened with `actions.editFile(repoId, path)` from the Local changes menu, the diff header, the Changed files menu, the palette and the "Open .gitignore" toast ("Resolve in editor" on a conflicted row). See "Quick editor" below. It reads `features/diff/syntax.ts`, `imageModel.ts` and `merge/editor.ts` (pure helpers and the syntax plugin). |
 | `shell/` | `Shell()` | Window layout (the right column tabs live here). Owned by the foundation, not by feature agents. |
 
 Files in `titlebar/ ... welcome/` currently hold **stubs**. Replace the stub, keep the export name and props.
@@ -66,7 +67,7 @@ feature. Cross-feature communication goes through `state/` (selection, layout, a
 | `events.ts` | `repoVersion(repoId)` / `anyRepoVersion()` (reactive counters bumped on every change), `subscribeRepoChanged(cb)`, `notifyRepoChanged(id)`. Never call `onRepoChanged` / `onGitConsole` yourself. |
 | `auth.ts` | Credential prompts of fetch, pull and push (PLAN.md section 5.6). Started by `startEvents()`; shows the `auth` dialog one prompt at a time (`authQueue.ts`). `clearSavedCredentials()` forgets all saved logins and `credentialStoreUnavailable()` tells that the backend found no key store (both for the Settings page). Features never call it otherwise. |
 | `activity.ts` | `activities()` (running operations for the progress widget), `beginActivity(label, total)`. |
-| `navigation.ts` | Back / forward through the views, commits and files visited: mouse side buttons and `Alt+Left` / `Alt+Right` (stack logic in `navHistory.ts`). A feature that has its own "current file" reports it with `setNavFile(f)` and says how to open one with `onOpenFile(fn)` (`FilesView` does). `navBack()` / `navForward()` run it by code. |
+| `navigation.ts` | Back / forward through the views, commits and files visited: mouse side buttons and `Alt+Left` / `Alt+Right` (stack logic in `navHistory.ts`). A location is the main view plus the selected commit. `navBack()` / `navForward()` run it by code. |
 | `keymap.ts` | See below. |
 | `actions.ts` | See below. |
 | `dialogs.ts` | See below. |
@@ -113,7 +114,7 @@ summary refresh are done for you. To add a new action, add it to `actions.ts` wi
 
 `registerDialog(name, Component)` and `showDialog(name, props) -> Promise<result | undefined>` (undefined = cancelled).
 Names and their `props` / `result` types are in `DialogRegistry`: `newBranch`, `renameBranch`, `merge`, `rebase`, `reset`,
-`confirm` (done), `push`, `stash`, `tag`, `checkoutRemote`, `settings` (`features/settings`, props `{ section? }`), `clone`, `auth` (opened by `state/auth.ts`, not by features), `conflicts`, `mergeFile`. Until a name is registered `showDialog` falls back to
+`confirm` (done), `push`, `stash`, `tag`, `checkoutRemote`, `settings` (`features/settings`, props `{ section? }`), `clone`, `auth` (opened by `state/auth.ts`, not by features), `conflicts`, `mergeFile`, `quickEdit` (props `{ repoId, path }`, no result). Until a name is registered `showDialog` falls back to
 `window.prompt` / `confirm`. A dialog component receives its props plus `close(result?)`:
 
 ```tsx
@@ -188,18 +189,34 @@ Rules to keep:
 - A hand edit inside a change resolves it (`byHand`); undoing the edit opens it again. Model actions are one undo step each.
 - The mock backend mirrors the Rust rules (path checks, "no longer in conflict", stale blob, binary). Extend `mockConflicts.ts` for new demos.
 
-### Conflict markers in the Files tab
+### Conflict markers in the quick editor
 
-A conflicted file (status `conflicted`) also opens in the Files tab with the markers git wrote in the worktree. No new backend
-command: the tab reads it with `read_text_file`, edits it, saves it with `write_text_file` and "Mark as resolved" runs `stage`.
+A conflicted file (status `conflicted`) or a text with a `<<<<<<<` line opens in the quick editor with the hunk resolver on. No new backend
+command: the dialog reads the file with `read_text_file`, saves it with `write_text_file`, and "Mark as resolved" runs `stage`. The entry is
+"Resolve in editor" on a conflicted row of Local changes.
 
-| File (`features/files/`) | What it does |
+| File (`features/quickedit/`) | What it does |
 |---|---|
 | `conflictHunks.ts` | Pure: `parseConflicts(text)` gives `hunks` (ours / base / theirs lines, labels, marker lines; diff3 `\|\|\|\|\|\|\|`, marker lengths over 7) and `stray` markers; `resolveHunk`, `resolveAll`, `resolutionLines` with `"ours" \| "theirs" \| "both" \| "bothReversed"`. Works on `"\n"`-split lines, a `"\r"` stays in the line (CRLF, no final newline round-trip). |
-| `conflictEditor.ts` | CodeMirror part: a state field with the hunks, line colours, a block widget with the actions above each hunk, `hunkChange` / `resolveHunkIn`, `goToConflict` (F7). It is off until `setConflictMode({ on, swapped })`; `FilesView` turns it on for conflicted files (`swapped` during a rebase: git's first section is Theirs for the UI). |
+| `conflictEditor.ts` | CodeMirror part: a state field with the hunks, line colours, a block widget with the actions above each hunk, `hunkChange` / `resolveHunkIn`, `goToConflict` (F7). It is off until `setConflictMode({ on, swapped })`; `QuickEditDialog` turns it on (`swapped` during a rebase: git's first section is Theirs for the UI). |
 
 The mock writes marker text into the worktree of its conflicted files (`worktreeTextOf` in `mockConflicts.ts`, diff3 style for
 `ledger-service/src/ledger/posting.rs`); Accept Yours / Theirs and the merge window write the result back to the mock worktree.
+
+## Quick editor
+
+The dialog `quickEdit` (`features/quickedit/`) edits one working tree file. It is not a code editor: no tabs, no file tree, no search in the project.
+
+| File | What it does |
+|---|---|
+| `QuickEditDialog.tsx` | The window: header (path, dirty dot, language), body (editor, picture, or a note), footer (cursor, line ends, Cancel / Save). `Ctrl+S` saves and closes, `Esc` closes (asks first when the text changed). |
+| `editor.ts` | CodeMirror state: line numbers, history, find and replace (`find/`), the syntax colours of the diff viewer (`syntaxPlugin`). `saveText` returns the text with its own line breaks. |
+| `lineEnds.ts` | Keeps CRLF files CRLF when text is typed or pasted. |
+| `ImagePreview.tsx` | A picture (png, gif, webp, ...) shows as a picture from `file_images` with `{ kind: "unstaged" }` (working tree side). |
+| `model.ts` | Pure helpers: line separator, the changed-on-disk message, the language label. |
+
+- Backend: `read_text_file` and `write_text_file` only. A save sends the version that was read; a changed file asks Reload or Overwrite. `write_text_file` emits `repo-changed`, so the changes list and the diff refresh by themselves.
+- A binary file (not a picture) and a file over 2 MiB show a note: the backend sends no content for them. An SVG is text: it opens in the editor (the diff viewer has the picture / text switch).
 
 ## UI components (`src/components/ui`, `import { ... } from "../../components/ui"`)
 

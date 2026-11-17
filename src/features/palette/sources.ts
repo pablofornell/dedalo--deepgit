@@ -10,7 +10,7 @@ import * as actions from "../../state/actions";
 import { showDialog } from "../../state/dialogs";
 import { bindings, runBinding } from "../../state/keymap";
 import { cachedRefs, repoRefs } from "../../state/refs";
-import { jumpToCommit, selectFile, selectedCommit, setChangesRepoId, setMainTab, setSelectedCommit } from "../../state/selection";
+import { jumpToCommit, selectFile, selectedCommit, selectedFile, setChangesRepoId, setMainTab, setSelectedCommit } from "../../state/selection";
 import { resolvedTheme, settings, setSetting } from "../../state/settings";
 import {
   activeProject, addProject, focusedRepo, projectRepos, rescanProject, selectAllRepos, selectOnlyRepo,
@@ -37,6 +37,14 @@ const EXTRAS: ExtraAction[] = [
   { key: "x.renameProject", title: "Rename project…", icon: "rename", group: "Project", run: () => void actions.renameProject() },
   { key: "x.rescan", title: "Rescan project for repositories", icon: "refresh", group: "Project", run: () => { const p = activeProject(); if (p) void rescanProject(p.id); } },
   { key: "x.about", title: "About DeepGit", icon: "info", group: "App", run: () => void showDialog("about", {}) },
+  {
+    key: "x.editFile", title: "Edit the selected file…", icon: "edit", group: "File",
+    run: () => {
+      const f = selectedFile();
+      if (f) void actions.editFile(f.repoId, f.path);
+      else toast({ kind: "info", title: "No file selected", body: "Select a file in Local changes or in a commit, then edit it." });
+    },
+  },
   { key: "x.showLog", title: "Show log", icon: "log", group: "View", run: () => setMainTab("log") },
   { key: "x.allRepos", title: "Show all repositories in the log", icon: "repo", group: "View", run: selectAllRepos },
   { key: "x.toggleGraph", title: "Toggle commit graph", icon: "log", group: "View", run: () => setSetting("showGraph", !settings.showGraph) },

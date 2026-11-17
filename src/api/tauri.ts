@@ -15,7 +15,7 @@
 import type {
   ApiErrorShape, AuthNotice, AuthPrompt, CloneOpts, CloneProgress, CloneResult, CloneTarget, CommitDetails, ConflictEntry, ConflictSide, ConflictVersions,
   ConsoleEntry, DiffSpec, ExpectedOids, FileDiff, FileImages, FileList, IgnoreFile, IgnoreTarget, InitInfo, LogQuery, LogSessionInfo, MergeOpts, OpResult, Project, CommitRow, HunkOpts, RepoChanged, RepoSummary, Refs,
-  ResetMode, SearchResult, StashUntracked, TextFile, Workspace, WorkingTree,
+  ResetMode, StashUntracked, TextFile, Workspace, WorkingTree,
 } from "./types";
 
 /** True when running inside the Tauri webview (false in a plain browser). */
@@ -119,9 +119,6 @@ export const listFiles = (repoId: string) => invoke<FileList>("list_files", { re
 export const readTextFile = (repoId: string, path: string) => invoke<TextFile>("read_text_file", { repoId, path });
 /** The text of `.gitignore` (repo root) or `.git/info/exclude` (empty when the file does not exist), and `core.ignorecase` of the repo. */
 export const readIgnoreFile = (repoId: string, target: IgnoreTarget) => invoke<IgnoreFile>("read_ignore_file", { repoId, target });
-/** Searches the tracked and untracked files that are not ignored. Hits are capped at 2 000. */
-export const searchFiles = (repoId: string, query: string, opts: { caseSensitive: boolean; regex: boolean }) =>
-  invoke<SearchResult>("search_files", { repoId, query, caseSensitive: opts.caseSensitive, regex: opts.regex });
 
 // ---------------------------------------------------------------- 5.4 write (each emits repo-changed)
 
@@ -149,15 +146,6 @@ export const discardHunk = (repoId: string, path: string, hunkIndex: number, opt
  */
 export const writeTextFile = (repoId: string, path: string, content: string, expectedVersion: string | null) =>
   invoke<string>("write_text_file", { repoId, path, content, expectedVersion });
-/**
- * Creates an empty file at `path` (relative to the repo) and the folders above it. Rejects when the name exists,
- * when the path leaves the repo or goes into `.git`, or when it ends with "/" or holds a backslash.
- */
-export const createFile = (repoId: string, path: string) => invoke<void>("create_file", { repoId, path });
-/** Creates an empty folder at `path` and the folders above it. The same rejections as `createFile`. Git does not list an empty folder. */
-export const createDir = (repoId: string, path: string) => invoke<void>("create_dir", { repoId, path });
-/** Returns the paths (each may end with "/") that are folders on the disk now. Empty folders count. Rejects a path outside the repo or in `.git`. */
-export const existingDirs = (repoId: string, paths: string[]) => invoke<string[]>("existing_dirs", { repoId, paths });
 /**
  * Adds pattern lines at the end of `.gitignore` or `.git/info/exclude` (creates the file). A line that the file holds
  * already is skipped. Returns the lines that were added. Does not stage and does not commit.

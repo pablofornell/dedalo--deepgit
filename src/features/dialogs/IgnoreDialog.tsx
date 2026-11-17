@@ -8,7 +8,7 @@ import * as api from "../../api/tauri";
 import type { IgnoreTarget } from "../../api/types";
 import { Dialog, type DialogComponentProps, Select, TextField, toast } from "../../components/ui";
 import type { IgnoreProps, IgnoreResult } from "../../state/dialogs";
-import { openFileInFiles } from "../../state/fileOpen";
+import { editFile } from "../../state/actions";
 import { repoById } from "../../state/workspace";
 import { Field, Note, RadioGroup, TextArea, type RadioOption } from "./parts";
 import {
@@ -132,7 +132,7 @@ export function IgnoreDialog(props: IgnoreProps & DialogComponentProps<IgnoreRes
           kind: "success",
           title: addedTitle(added, name),
           body: t === "gitignore" ? `${targetLabel(t)}. Commit it when you are ready.` : `${targetLabel(t)} of ${repoName}. The rule stays on this computer.`,
-          actions: t === "gitignore" ? [{ label: "Open .gitignore", onClick: () => openFileInFiles(props.repoId, ".gitignore") }] : undefined,
+          actions: t === "gitignore" ? [{ label: "Open .gitignore", onClick: () => void editFile(props.repoId, ".gitignore") }] : undefined,
         });
       }
       props.close({ target: t, added });

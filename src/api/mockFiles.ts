@@ -1,26 +1,17 @@
 /**
  * Worktree files of the browser mock: the fake disk of every repo and the rules of the file commands
- * (`list_files`, `read_text_file`, `write_text_file`, `search_files`). The rules are those of
- * crates/gitcore/src/files.rs. Two differences: the mock also refuses Windows-style paths, and it
- * words a bad regex in its own way.
+ * (`list_files`, `read_text_file`, `write_text_file`). The rules are those of crates/gitcore/src/files.rs.
+ * One difference: the mock also refuses Windows-style paths.
  */
 import { fileText } from "./mockDiff";
-import type { FileList, SearchResult, TextFile } from "./types";
+import type { FileList, TextFile } from "./types";
 
 export const MAX_LISTED_FILES = 100_000;
 export const MAX_TEXT_BYTES = 2 * 1024 * 1024;
-export const MAX_HITS = 2_000;
-export const MAX_HIT_CHARS = 400;
 const BINARY_SCAN_BYTES = 8000;
 export const CHANGED_ON_DISK = "The file changed on disk. Reload it before you save.";
-export const SEARCH_TEXT_INVALID = "The search text cannot contain a line break or a NUL character.";
 
 const encoder = new TextEncoder();
-
-/** The rejection shape of a failed command (same as `fail` in mock.ts). */
-function refuse(message: string, detail?: string): never {
-  throw detail ? { message, detail } : { message };
-}
 
 function fnv(text: string, seed: number): number {
   let h = seed >>> 0;
@@ -122,56 +113,6 @@ export function readText(text: string): TextFile {
   return { content: text, version: versionOf(text), binary: false, tooLarge: false };
 }
 
-/** The message for a search text that cannot be used, or null. */
-export function searchTextError(query: string): string | null {
-  return /[\0\n\r]/.test(query) ? SEARCH_TEXT_INVALID : null;
-}
-
-/**
- * Searches the files that are not ignored, like `git grep -n --column -I`. Gives one hit per matching line, at the
- * 1-based character column of its first match. Sorts the hits by path and line. Cuts each text to 400 characters.
- * Throws the rejection shape for a bad regex.
- */
-export function searchFiles(
-  files: Map<string, string>,
-  ignored: Set<string>,
-  query: string,
-  caseSensitive: boolean,
-  regex: boolean,
-  max = MAX_HITS,
-): SearchResult {
-  const refused = searchTextError(query);
-  if (refused !== null) refuse(refused);
-  if (query === "") return { hits: [], truncated: false };
-  let re: RegExp | null = null;
-  if (regex) {
-    try {
-      re = new RegExp(query, caseSensitive ? "" : "i");
-    } catch {
-      refuse(`fatal: invalid regular expression: ${query}`);
-    }
-  }
-  const needle = caseSensitive ? query : query.toLowerCase();
-  const hits: SearchResult["hits"] = [];
-  for (const path of [...files.keys()].filter((k) => !ignored.has(k)).sort(byBytes)) {
-    const content = files.get(path) ?? "";
-    if (isBinary(content)) continue;
-    content.split("\n").forEach((raw, i) => {
-      // git matches the raw line, carriage return included. Only the text drops it.
-      const at = re ? (re.exec(raw)?.index ?? -1) : (caseSensitive ? raw : raw.toLowerCase()).indexOf(needle);
-      if (at < 0) return;
-      const text = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
-      hits.push({
-        path,
-        line: i + 1,
-        column: Array.from(raw.slice(0, at)).length + 1,
-        text: Array.from(text).slice(0, MAX_HIT_CHARS).join(""),
-      });
-    });
-  }
-  return { hits: hits.slice(0, max), truncated: hits.length > max };
-}
-
 /** Why a pattern line is refused by `files::append_ignore_rules`, or null. */
 export function ignorePatternError(pattern: string): string | null {
   if (pattern.trim() === "") return "A pattern cannot be empty.";
@@ -196,38 +137,6 @@ export function appendIgnoreLines(existing: string, patterns: readonly string[])
   const eol = existing.includes("\r\n") ? "\r\n" : "\n";
   const lead = existing !== "" && !existing.endsWith("\n") ? eol : "";
   return { text: existing + lead + added.map((l) => l + eol).join(""), added };
-}
-
-/**
- * Why `create_file` / `create_dir` refuse a new `path`, or null (`files::create_file` and `create_dir`). `emptyDirs` holds
- * the folders that exist with no file in them (git does not list those). Checks the path rules first, then the name, then
- * a file in the way of a parent folder, then a name that exists.
- */
-export function createEntryError(files: Map<string, string>, emptyDirs: ReadonlySet<string>, path: string): string | null {
-  const refused = filePathError(path);
-  if (refused !== null) return refused;
-  if (path.endsWith("/") || path.includes("\\") || path.includes("\0")) return `not a valid name: ${path}`;
-  const parts = fileKey(path).split("/");
-  // Names that Windows reads as `.git` (`.git.`, `git~1`), a stream name (`:`) and a part that ends with a dot or a space.
-  const gitLike = (p: string): boolean => {
-    const lower = p.replace(/[. ]+$/, "").toLowerCase();
-    return lower === ".git" || lower.startsWith("git~");
-  };
-  if (parts.some(gitLike)) return `path inside the git folder: ${path}`;
-  if (parts.some((p) => p.includes(":") || /[. ]$/.test(p))) return `not a valid name: ${path}`;
-  for (let i = 1; i < parts.length; i++) {
-    const above = parts.slice(0, i).join("/");
-    if (files.has(above)) return `${above} is a file, so ${path} cannot go inside it.`;
-  }
-  const key = parts.join("/");
-  if (files.has(key) || emptyDirs.has(key) || isFolder(files, key)) return `${key} already exists.`;
-  return null;
-}
-
-/** The folders above `path` and `path` itself, outermost first (`a/b/c` gives `a`, `a/b`, `a/b/c`). */
-export function folderChain(path: string): string[] {
-  const parts = fileKey(path).split("/");
-  return parts.map((_, i) => parts.slice(0, i + 1).join("/"));
 }
 
 /** A small, realistic file for each path the fixed set names. */

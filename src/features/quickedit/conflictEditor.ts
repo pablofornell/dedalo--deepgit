@@ -1,5 +1,5 @@
 /**
- * CodeMirror 6 part of the conflict resolver of the Files tab (no Solid). It reads the conflict markers of the document
+ * CodeMirror 6 part of the conflict resolver of the quick editor (no Solid). It reads the conflict markers of the document
  * (`conflictHunks.ts`), colours the sections of each hunk and puts a row of actions above it:
  * Accept Yours, Accept Theirs, and both in either order. An action is an ordinary edit, so Ctrl+Z undoes it and the
  * text stays editable by hand. The mode is off until `setConflictMode` turns it on (only a conflicted file uses it:

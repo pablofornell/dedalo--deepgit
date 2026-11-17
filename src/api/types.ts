@@ -347,23 +347,6 @@ export interface IgnoreFile {
   ignoreCase: boolean;
 }
 
-/** One matching line of a search. */
-export interface SearchHit {
-  path: string;
-  /** 1-based. */
-  line: number;
-  /** 1-based, in characters. */
-  column: number;
-  /** The line, cut to 400 characters. */
-  text: string;
-}
-
-export interface SearchResult {
-  /** At most 2 000 hits, sorted by path and line. */
-  hits: SearchHit[];
-  truncated: boolean;
-}
-
 // ---------------------------------------------------------------- console, events, results
 
 export interface ConsoleEntry {

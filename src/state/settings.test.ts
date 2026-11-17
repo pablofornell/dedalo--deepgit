@@ -85,7 +85,7 @@ describe("settings store", () => {
     storage.set("deepgit.ui.hScrollSensitivity", '"fast"');
     expect((await load()).settings.hScrollSensitivity).toBe(100);
     storage.set("deepgit.ui.hScrollSensitivity", "9999");
-    expect((await load()).settings.hScrollSensitivity).toBe(300);
+    expect((await load()).settings.hScrollSensitivity).toBe(1000);
     storage.set("deepgit.ui.hScrollSensitivity", "152");
     expect((await load()).settings.hScrollSensitivity).toBe(150);
     storage.set("deepgit.ui.hScrollSensitivity", "175");

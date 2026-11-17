@@ -33,7 +33,7 @@ export interface CommitJump {
   id: number;
 }
 
-export type MainTab = "log" | "changes" | "files";
+export type MainTab = "log" | "changes";
 /** Tabs of the right column: "files" = Changed files (commit details), "diff" = File changes (the diff of the selected file). */
 export type DetailsTab = "files" | "diff";
 
