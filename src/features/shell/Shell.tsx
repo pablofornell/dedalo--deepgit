@@ -4,7 +4,7 @@
  * components fill the islands; the shell owns sizes, visibility and the splitters.
  */
 import { type JSX, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
-import { HeaderSlotTarget, Icon, IconButton, Splitter, loadSplitSize, openMenu, plural, markNotificationsRead, notifications, unreadCount, type IconName } from "../../components/ui";
+import { HeaderSlotTarget, Icon, IconButton, Splitter, loadSplitSize, openMenu, plural, markNotificationsRead, notifications, splitDragging, unreadCount, type IconName } from "../../components/ui";
 import { formatDate } from "../../state/dates";
 import { tip } from "../../components/ui";
 import { ChangesView } from "../changes/ChangesView";
@@ -22,7 +22,7 @@ import { activeProject, selectedRepos } from "../../state/workspace";
 import { keysFor, formatKeys, register } from "../../state/keymap";
 import { loadPersisted, savePersisted } from "../../state/persist";
 import { DEFAULT_RATIOS, allocate, maxBottom, ratioFor, sanitizeRatios, type Mins, type Ratios } from "./heights";
-import { MIN_DETAILS, clampDetails, defaultDetails, maxDetails, maximizedDetails } from "./widths";
+import { MIN_DETAILS, clampDetails, defaultDetails, defaultRatio, detailsPersistKey, maxDetails, maximizedDetails, type MainTabKey } from "./widths";
 import "./shell.css";
 
 const SPLIT = 6;
@@ -60,8 +60,18 @@ const keyOf = (id: string) => {
 
 export function Shell(): JSX.Element {
   const [sidebarW, setSidebarW] = createSignal(loadSplitSize("sidebar", 280));
-  // Width of the right column: the persisted px (NaN = never dragged: 42 % of the row), clamped on every use.
-  const [detailsPref, setDetailsPref] = createSignal(loadSplitSize("details", Number.NaN));
+  // Width of the right column, one per main tab: the persisted px (NaN = never dragged: the tab's default share of the
+  // row), clamped on every use. The log keeps a wide main island; Local changes gives the space to the diff.
+  const [detailsPrefs, setDetailsPrefs] = createSignal<Record<MainTabKey, number>>({
+    log: loadSplitSize(detailsPersistKey("log"), Number.NaN),
+    changes: loadSplitSize(detailsPersistKey("changes"), Number.NaN),
+  });
+  const tabKey = (): MainTabKey => (mainTab() === "changes" ? "changes" : "log");
+  // A drag belongs to the tab it started on, even if a shortcut switches the tab mid-drag. The lock is released in a
+  // microtask, after the Splitter has saved the final width under the locked key.
+  const [dragTab, setDragTab] = createSignal<MainTabKey | null>(null);
+  createEffect(on(splitDragging, (d) => (d ? setDragTab(tabKey()) : queueMicrotask(() => setDragTab(null))), { defer: true }));
+  const resizeKey = (): MainTabKey => dragTab() ?? tabKey();
   const [rowW, setRowW] = createSignal(0);
   const [maximized, setMaximized] = createSignal(false);
   // The bottom tool window keeps a persisted share of the centre column; the main row takes the rest.
@@ -72,10 +82,11 @@ export function Shell(): JSX.Element {
 
   const toastWidth = () => (sidebarVisible() ? Math.min(384, Math.max(260, sidebarW() - 12)) : 320);
   const rowWidth = () => rowW() || 1300;
-  const detailsW = createMemo(() => (maximized() ? maximizedDetails(rowWidth(), SPLIT) : clampDetails(detailsPref(), rowWidth(), SPLIT)));
+  const detailsW = createMemo(() => (maximized() ? maximizedDetails(rowWidth(), SPLIT) : clampDetails(detailsPrefs()[tabKey()], rowWidth(), SPLIT, defaultRatio(tabKey()))));
   const resizeDetails = (px: number) => {
     setMaximized(false);
-    setDetailsPref(px);
+    const k = resizeKey();
+    setDetailsPrefs((p) => ({ ...p, [k]: px }));
   };
   const mins = (): Mins => ({ top: tokenPx("--dg-shell-main-min-height", 260), bottom: MIN_BOTTOM });
   const heights = createMemo(() => allocate(centerH() || 900, SPLIT, bottomTool() !== null, ratios(), mins()));
@@ -195,7 +206,7 @@ export function Shell(): JSX.Element {
                   <ChangesView />
                 </div>
               </section>
-              <Splitter orientation="vertical" reverse size={detailsW()} onSize={resizeDetails} min={MIN_DETAILS} max={() => maxDetails(rowWidth(), SPLIT)} defaultSize={defaultDetails(rowWidth(), SPLIT)} persistKey="details" />
+              <Splitter orientation="vertical" reverse size={detailsW()} onSize={resizeDetails} min={MIN_DETAILS} max={() => maxDetails(rowWidth(), SPLIT)} defaultSize={defaultDetails(rowWidth(), SPLIT, defaultRatio(tabKey()))} persistKey={detailsPersistKey(resizeKey())} />
               <aside class="dg-shell-island dg-shell-details" style={{ width: detailsW() + "px" }} aria-label="Details">
                 <div class="dg-shell-head" role="tablist" aria-label="Details tabs">
                   <button type="button" role="tab" aria-selected={detailsTab() === "files"} class="dg-shell-tab" classList={{ "is-on": detailsTab() === "files" }} onClick={() => setDetailsTab("files")}>
