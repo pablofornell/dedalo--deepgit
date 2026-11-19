@@ -115,11 +115,15 @@ export function Shell(): JSX.Element {
   // A click or Enter in the file tree hides the tree under the focus: move the focus into the diff so Esc works at once.
   // (A file chosen in the Local changes list keeps the focus there.) Only a column tab change in the same main tab: a
   // main tab switch shows the column tab of that main tab and does not move the focus.
+  let lastMain = mainTab();
   createEffect(
     on(
       [mainTab, detailsTab],
-      ([m, t], prev) => {
-        if (t !== "diff" || !prev || prev[0] !== m) return;
+      ([m, t]) => {
+        // `on` with `defer` gives no `prev` on the first change: compare with the main tab of the last run instead.
+        const sameTab = lastMain === m;
+        lastMain = m;
+        if (t !== "diff" || !sameTab) return;
         const active = document.activeElement;
         if (active && active !== document.body && !active.closest('[data-details-view="files"]')) return;
         queueMicrotask(() => document.querySelector<HTMLElement>('[data-details-view="diff"] .dg-diff')?.focus());

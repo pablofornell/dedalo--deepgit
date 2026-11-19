@@ -276,7 +276,7 @@ export function CommitDetails(props: { tab: MainTab }): JSX.Element {
     if (!list) return;
     const now = list.find((x) => x.oid === sel.oid);
     if (!now) setSelectedCommit(null, { tab });
-    else if (now.index !== sel.stash.index) setSelectedCommit({ ...sel, stash: { index: now.index } }, { tab });
+    else if (now.index !== sel.stash.index) setSelectedCommit({ ...sel, stash: { index: now.index } }, { tab, focus: false });
   });
 
   const repo = () => {

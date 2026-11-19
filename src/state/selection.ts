@@ -108,7 +108,7 @@ export const changesScopeCount = (): number => changesCount(changesScopeRepos(),
  * "Changed files") when it does not. Selecting no commit drops a commit file at once. A new commit while "File
  * changes" shows no file returns to "Changed files".
  */
-export function setSelectedCommit(c: SelectedCommit | null, opts?: { tab?: MainTab }): void {
+export function setSelectedCommit(c: SelectedCommit | null, opts?: { tab?: MainTab; focus?: boolean }): void {
   const which = opts?.tab ?? "log";
   const col = columns[which];
   const prev = col.commit();
@@ -122,7 +122,8 @@ export function setSelectedCommit(c: SelectedCommit | null, opts?: { tab?: MainT
     col.setDTab("files");
   }
   if (c) {
-    setFocusedRepoId(c.repoId);
+    // `focus: false`: a refresh (a stash index moved), not a pick by the user, so the focused repo stays.
+    if (opts?.focus !== false) setFocusedRepoId(c.repoId);
     // File changes with no file selected is an empty view: show Changed files for the new commit. With a file open,
     // `CommitDetails` decides (follow the file or drop it and return to Changed files).
     if (col.dTab() === "diff" && !col.file()) col.setDTab("files");
@@ -131,10 +132,12 @@ export function setSelectedCommit(c: SelectedCommit | null, opts?: { tab?: MainT
 
 /**
  * Selects a commit like `setSelectedCommit` and marks it as the target of a jump (a branch or tag picked in the
- * sidebar, `H`): the log scrolls to it and its node pulses. A click or an arrow key in the log does not call this.
+ * sidebar, `H`): the Log tab opens, the log scrolls to it and its node pulses. A click or an arrow key in the log does not call this.
  */
 export function jumpToCommit(c: SelectedCommit): void {
   batch(() => {
+    // The jump shows the commit in the log: on Local changes the right column of that tab has no part in it.
+    setTab("log");
     setSelectedCommit(c);
     setTarget({ repoId: c.repoId, oid: c.oid, id: ++jumps });
   });

@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-  clearSelection, commitFor, detailsCommit, detailsTab, detailsTabFor, fileFor, selectFile, selectedCommit, selectedFile, setDetailsTab, setMainTab, setSelectedCommit,
+  clearSelection, commitFor, detailsCommit, jumpToCommit, mainTab, detailsTab, detailsTabFor, fileFor, selectFile, selectedCommit, selectedFile, setDetailsTab, setMainTab, setSelectedCommit,
 } from "./selection";
 
 const a = { repoId: "r1", oid: "aaa" };
@@ -110,5 +110,13 @@ describe("each main tab owns its right column", () => {
       expect(fileFor(t)).toBeNull();
       expect(detailsTabFor(t)).toBe("files");
     }
+  });
+  it("a jump (branch, tag) opens the Log tab and keeps the Local changes column", () => {
+    setMainTab("changes");
+    selectFile(wtFile, { tab: "changes" });
+    jumpToCommit(a);
+    expect(mainTab()).toBe("log");
+    expect(selectedCommit()).toEqual(a);
+    expect(fileFor("changes")).toEqual(wtFile);
   });
 });
