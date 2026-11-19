@@ -107,17 +107,19 @@ export function Shell(): JSX.Element {
     onCleanup(() => ro.disconnect());
   });
 
-  // The maximized column only makes sense on "File changes": leaving that tab restores the width.
+  // The maximized column only makes sense on "File changes": leaving that tab restores the width. Each main tab has its
+  // own column tab, so a main tab switch to a tab on "Changed files" also restores the width.
   createEffect(on(detailsTab, (t) => t !== "diff" && setMaximized(false), { defer: true }));
   // A reset in Settings also restores a maximized column, so the new width is visible at once.
   createEffect(on(detailsResetCount, () => setMaximized(false), { defer: true }));
   // A click or Enter in the file tree hides the tree under the focus: move the focus into the diff so Esc works at once.
-  // (A file chosen in the Local changes list keeps the focus there.)
+  // (A file chosen in the Local changes list keeps the focus there.) Only a column tab change in the same main tab: a
+  // main tab switch shows the column tab of that main tab and does not move the focus.
   createEffect(
     on(
-      detailsTab,
-      (t) => {
-        if (t !== "diff") return;
+      [mainTab, detailsTab],
+      ([m, t], prev) => {
+        if (t !== "diff" || !prev || prev[0] !== m) return;
         const active = document.activeElement;
         if (active && active !== document.body && !active.closest('[data-details-view="files"]')) return;
         queueMicrotask(() => document.querySelector<HTMLElement>('[data-details-view="diff"] .dg-diff')?.focus());
@@ -231,7 +233,8 @@ export function Shell(): JSX.Element {
                   </Show>
                 </div>
                 <div class="dg-shell-view" data-details-view="files" hidden={detailsTab() !== "files"}>
-                  <CommitDetails />
+                  <CommitDetails tab="log" />
+                  <CommitDetails tab="changes" />
                 </div>
                 <div class="dg-shell-view" data-details-view="diff" hidden={detailsTab() !== "diff"}>
                   <DiffPanel />

@@ -93,7 +93,7 @@ The window has these parts:
 | Tool stripe | Left edge | Buttons for the Project sidebar (`Alt+1`), Local changes (`Alt+0`), Branch matrix (`Alt+2`) and Git console (`Alt+9`). Also the notifications button. |
 | Sidebar | Left | The project card and the tree of repositories, branches, tags and stashes. |
 | Main island | Centre | Two tabs: **Log** and **Local changes**. |
-| Right column | Right of the main island | Two tabs. **Changed files** shows the selected commit and its changed files. **File changes** shows the diff of the selected file. |
+| Right column | Right of the main island | Two tabs. **Changed files** shows the selected commit and its changed files. **File changes** shows the diff of the selected file. **Log** and **Local changes** each keep their own right column: what you open on one tab does not show on the other. |
 | Bottom tool window | Below the main island and the right column | **Git console** or **Branch matrix**. It shows only when you open it. |
 | Status bar | Bottom | Command ticker, focused repository, current branch, fetch age and theme switch. |
 

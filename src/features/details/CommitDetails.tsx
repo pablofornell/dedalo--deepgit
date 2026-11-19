@@ -1,7 +1,8 @@
 /**
  * "Changed files" tab of the right column (DESIGN.md 5.8, 5.9): identity, subject, body, people, parents / branches /
- * push state and the changed files (tree or list). Reads `selectedCommit()`; clicking a file or pressing Enter on it
- * opens it in the "File changes" tab. The commit actions go to the column header (`HeaderSlot name="details"`).
+ * push state and the changed files (tree or list). Reads `commitFor(tab)` of its main tab (the Log commit, or the stash
+ * that Local changes shows); clicking a file or pressing Enter on it opens it in the "File changes" tab of that main
+ * tab. The commit actions go to the column header (`HeaderSlot name="details"`).
  */
 import { type JSX, For, Match, Show, Switch, batch, createEffect, createMemo, createSignal, on, untrack } from "solid-js";
 import * as api from "../../api/tauri";
@@ -16,7 +17,7 @@ import { repoVersion } from "../../state/events";
 import { loadPersisted, savePersisted } from "../../state/persist";
 import { refsVersion, repoRefs } from "../../state/refs";
 import { followFile } from "../../state/fileFollow";
-import { mainTab, selectFile, selectedCommit, selectedFile, setDetailsTab, setSelectedCommit, type SelectedFile } from "../../state/selection";
+import { commitFor, fileFor, mainTab, selectFile, setDetailsTab, setMainTab, setSelectedCommit, type MainTab, type SelectedFile } from "../../state/selection";
 import { repoById, summary } from "../../state/workspace";
 import { committerDiffers, pushState, type PushState } from "./commitText";
 import { buildFileTree, dirIds, fileId, flatFiles, totals, type DirNode, type FileNode, type TreeNode } from "./fileTree";
@@ -138,7 +139,16 @@ function PushLine(props: { state: PushState }): JSX.Element {
   );
 }
 
-export function CommitDetails(): JSX.Element {
+/**
+ * One instance for each main tab (`props.tab`): it shows the commit of that main tab and reads / writes the file and
+ * the column tab of that main tab, also while the other main tab is active. Only the instance of the active main tab is
+ * visible and puts its actions into the column header.
+ */
+export function CommitDetails(props: { tab: MainTab }): JSX.Element {
+  const tab = props.tab;
+  const shownCommit = () => commitFor(tab);
+  const shownFile = () => fileFor(tab);
+  const isActive = () => mainTab() === tab;
   const [details, setDetails] = createSignal<CommitDetailsData | null>(null);
   const [status, setStatus] = createSignal<Status>("idle");
   const [error, setError] = createSignal("");
@@ -182,14 +192,14 @@ export function CommitDetails(): JSX.Element {
 
   // A commit never changes: details are loaded only when the (repo, oid) key changes (or on "Try again").
   const commitKey = createMemo(() => {
-    const sel = selectedCommit();
+    const sel = shownCommit();
     return sel ? `${sel.repoId}:${sel.oid}` : "";
   });
 
   createEffect(() => {
     const key = commitKey();
     retry();
-    const sel = untrack(selectedCommit);
+    const sel = untrack(shownCommit);
     const mine = ++seq;
     branchSeq++;
     if (!sel) {
@@ -243,11 +253,11 @@ export function CommitDetails(): JSX.Element {
   createEffect(
     on(
       () => {
-        const sel = selectedCommit();
+        const sel = shownCommit();
         return sel ? repoVersion(sel.repoId) + refsVersion(sel.repoId) : 0;
       },
       () => {
-        const sel = untrack(selectedCommit);
+        const sel = untrack(shownCommit);
         if (!sel) return;
         const d = untrack(details);
         if (d) {
@@ -260,17 +270,17 @@ export function CommitDetails(): JSX.Element {
 
   // The selected stash was popped or dropped: clear the selection. Another index for the same stash updates the label.
   createEffect(() => {
-    const sel = selectedCommit();
+    const sel = shownCommit();
     if (!sel?.stash) return;
     const list = repoRefs(sel.repoId)()?.stashes;
     if (!list) return;
     const now = list.find((x) => x.oid === sel.oid);
-    if (!now) setSelectedCommit(null);
-    else if (now.index !== sel.stash.index) setSelectedCommit({ ...sel, stash: { index: now.index } });
+    if (!now) setSelectedCommit(null, { tab });
+    else if (now.index !== sel.stash.index) setSelectedCommit({ ...sel, stash: { index: now.index } }, { tab });
   });
 
   const repo = () => {
-    const s = selectedCommit();
+    const s = shownCommit();
     return s ? repoById(s.repoId) : undefined;
   };
 
@@ -283,7 +293,7 @@ export function CommitDetails(): JSX.Element {
     const u = stashUntracked();
     return u ? [...d.files, ...u.files.map((f): FileChange => ({ ...f, status: "untracked" }))] : d.files;
   };
-  const isStash = () => !!selectedCommit()?.stash;
+  const isStash = () => !!shownCommit()?.stash;
   /** The open file belongs to the shown commit: to the commit itself, or to the untracked commit of a stash. */
   const ownsFile = (f: SelectedFile, d: CommitDetailsData): boolean =>
     f.repoId === d.repoId && f.spec.kind === "commit" && (f.spec.oid === d.oid || f.spec.oid === stashUntracked()?.oid);
@@ -313,35 +323,37 @@ export function CommitDetails(): JSX.Element {
     const spec = isStash()
       ? { kind: "commit" as const, oid: f.status === "untracked" && u ? u.oid : d.oid, parent: null }
       : specFor(d);
-    selectFile({ repoId: d.repoId, spec, path: f.path, oldPath: f.oldPath ?? undefined }, { reveal });
+    selectFile({ repoId: d.repoId, spec, path: f.path, oldPath: f.oldPath ?? undefined }, { reveal, tab });
   };
 
   // The commit changed while a file was open: keep it (pointed at the new commit) when the new commit changes the same
-  // path, otherwise drop it and return to "Changed files". Only in the Log: Local changes files do not depend on the commit.
+  // path, otherwise drop it and return to "Changed files". This applies to the file of this main tab, also while the
+  // other main tab is active. Only a commit file: a Local changes file (staged, unstaged) does not depend on the commit.
   createEffect(
     on(
       () => details()?.oid,
       (oid) => {
         const d = untrack(details);
-        const f = untrack(selectedFile);
-        if (!oid || !d || !f || untrack(mainTab) !== "log") return;
+        const f = untrack(shownFile);
+        if (!oid || !d || !f || f.spec.kind !== "commit") return;
         const next = followFile(f, d, untrack(parentIdx));
         if (next === f) return;
-        if (next) selectFile(next, { reveal: false });
+        if (next) selectFile(next, { reveal: false, tab });
         else {
-          if (f.spec.kind === "commit") selectFile(null);
-          setDetailsTab("files");
+          selectFile(null, { tab });
+          setDetailsTab("files", tab);
         }
       },
       { defer: true },
     ),
   );
-  // The new commit could not be loaded: the old file means nothing any more.
+  // The new commit could not be loaded: the old commit file means nothing any more. A Local changes file stays open.
   createEffect(
     on(status, (st) => {
-      if (st !== "error" || untrack(mainTab) !== "log") return;
-      if (untrack(selectedFile)?.spec.kind === "commit") selectFile(null);
-      setDetailsTab("files");
+      const f = untrack(shownFile);
+      if (st !== "error" || (f && f.spec.kind !== "commit")) return;
+      if (f) selectFile(null, { tab });
+      setDetailsTab("files", tab);
     }, { defer: true }),
   );
 
@@ -350,17 +362,17 @@ export function CommitDetails(): JSX.Element {
   const selectedId = createMemo(() => {
     const dir = dirSel();
     if (dir) return dir;
-    const f = selectedFile();
+    const f = shownFile();
     const d = details();
     return f && d && ownsFile(f, d) ? fileId(f.path) : null;
   });
-  createEffect(on(selectedFile, () => setDirSel(null), { defer: true }));
+  createEffect(on(shownFile, () => setDirSel(null), { defer: true }));
 
   // Switching the parent re-opens the shown file against the new parent.
   createEffect(
     on(parentIdx, () => {
       const d = details();
-      const f = selectedFile();
+      const f = shownFile();
       if (d && f && ownsFile(f, d)) {
         const change = files().find((x) => x.path === f.path);
         if (change) openFile(change, false);
@@ -515,20 +527,26 @@ export function CommitDetails(): JSX.Element {
   const onFilesClick = (e: MouseEvent) => {
     const row = (e.target as Element | null)?.closest?.(".dg-tree-row");
     if (!row || (e.target as Element).closest(".dg-tree-chev") || !row.querySelector(".dg-details-fname")) return;
-    if (selectedFile()?.spec.kind === "commit") setDetailsTab("diff");
+    if (shownFile()?.spec.kind === "commit") setDetailsTab("diff", tab);
+  };
+
+  /** A parent is a log commit: select it in the log. From the stash of Local changes this also goes to the Log tab. */
+  const showParent = (repoId: string, oid: string) => {
+    setSelectedCommit({ repoId, oid });
+    if (tab !== "log") setMainTab("log");
   };
 
   // ---------------------------------------------------------------- view
 
   return (
-    <div class="dg-details">
+    <div class="dg-details" hidden={!isActive()}>
       <HeaderSlot name="details">
-        <Show when={details()}>
+        <Show when={isActive() && details()}>
           {(d) => (
             <>
               <IconButton icon="copy" label="Copy hash" shortcut="Ctrl+Shift+C" onClick={() => void copy(shortOid(d().oid), shortOid(d().oid))} />
               <Show
-                when={selectedCommit()?.stash}
+                when={shownCommit()?.stash}
                 fallback={
                   <>
                     <IconButton icon="cherryPick" label={`Cherry-pick onto ${summary(d().repoId)?.branch ?? "HEAD"}`} onClick={() => void actions.cherryPick(d().repoId, [d().oid])} />
@@ -551,8 +569,10 @@ export function CommitDetails(): JSX.Element {
       </HeaderSlot>
 
       <Switch>
-        <Match when={!selectedCommit()}>
-          <EmptyState icon="commit" title="Select a commit">Its message, files and diff appear here.</EmptyState>
+        <Match when={!shownCommit()}>
+          <EmptyState icon="commit" title="Select a commit">
+            {tab === "changes" ? "Select a stash in the sidebar to see its files here." : "Its message, files and diff appear here."}
+          </EmptyState>
         </Match>
         <Match when={status() === "error"}>
           <EmptyState
@@ -581,7 +601,7 @@ export function CommitDetails(): JSX.Element {
                   <div class="dg-details-pad">
                     <div class="dg-details-id">
                       <Show when={repo()}>{(r) => <RepoChip name={r().name} />}</Show>
-                      <Show when={selectedCommit()?.stash}>{(s) => <Badge title="Stash">{`stash@{${s().index}}`}</Badge>}</Show>
+                      <Show when={shownCommit()?.stash}>{(s) => <Badge title="Stash">{`stash@{${s().index}}`}</Badge>}</Show>
                       <button type="button" class="dg-details-hash" title="Copy hash" onClick={() => void copy(shortOid(d().oid), shortOid(d().oid))}>
                         {d().oid}
                       </button>
@@ -615,7 +635,7 @@ export function CommitDetails(): JSX.Element {
                           <For each={d().parents}>
                             {(p) => (
                               <span class="dg-details-parent">
-                                <button type="button" class="dg-details-hashlink" title={`Select ${p}`} onClick={() => setSelectedCommit({ repoId: d().repoId, oid: p })}>
+                                <button type="button" class="dg-details-hashlink" title={`Select ${p}`} onClick={() => showParent(d().repoId, p)}>
                                   {shortOid(p)}
                                 </button>
                                 <span class="dg-details-muted dg-details-ellipsis" title={parentSubjects()[p]}>{parentSubjects()[p] ?? ""}</span>
