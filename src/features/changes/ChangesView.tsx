@@ -17,7 +17,7 @@ import { notifyRepoChanged, repoVersion } from "../../state/events";
 import { ignoreMenuItems, type IgnoreRef } from "../../state/ignoreMenu";
 import { register } from "../../state/keymap";
 import { loadPersisted, savePersisted } from "../../state/persist";
-import { changesRepoId, changesScopeRepos, mainTab, selectFile, selectedFile, setChangesRepoId } from "../../state/selection";
+import { changesRepoId, changesScopeRepos, fileFor, mainTab, selectFile, setChangesRepoId } from "../../state/selection";
 import { isRepoFilterActive, projectRepos, repoById, summary } from "../../state/workspace";
 import { CommitBox, DEFAULT_HEIGHT, type CommitTarget } from "./CommitBox";
 import {
@@ -147,7 +147,7 @@ export function ChangesView(): JSX.Element {
       spec: { kind: row.section === "staged" ? "staged" : "unstaged" },
       path: row.file.path,
       oldPath: row.file.oldPath ?? undefined,
-    });
+    }, { tab: "changes" });
   };
 
   const selectOnly = (row: Row): void => {
@@ -266,9 +266,10 @@ export function ChangesView(): JSX.Element {
   );
 
   // The File changes tab follows a file that moved to the other zone (stage, unstage) and shows its new diff; it drops
-  // a file that is no longer changed. Once the spec matches the zone this is a no-op, so it cannot loop.
+  // a file that is no longer changed. Once the spec matches the zone this is a no-op, so it cannot loop. This is the
+  // file of the Local changes tab, also when the working tree changes while the Log tab is active.
   createEffect(() => {
-    const f = selectedFile();
+    const f = fileFor("changes");
     if (!f || f.spec.kind === "commit") return;
     const wt = trees()[f.repoId];
     if (!wt) return;
@@ -277,8 +278,8 @@ export function ChangesView(): JSX.Element {
     if (has(sectionFiles(wt, section)) || has(wt.conflicted)) return;
     const other: Section = section === "staged" ? "unstaged" : "staged";
     const moved = sectionFiles(wt, other).find((x) => x.path === f.path);
-    if (moved) selectFile({ ...f, spec: { kind: other }, oldPath: moved.oldPath ?? undefined }, { reveal: false });
-    else selectFile(null);
+    if (moved) selectFile({ ...f, spec: { kind: other }, oldPath: moved.oldPath ?? undefined }, { reveal: false, tab: "changes" });
+    else selectFile(null, { tab: "changes" });
   });
 
   // ------------------------------------------------------------ actions

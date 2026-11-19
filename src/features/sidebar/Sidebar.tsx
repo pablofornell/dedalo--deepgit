@@ -10,7 +10,7 @@ import { setSidebarVisible } from "../../state/layout";
 import { loadPersisted, savePersisted } from "../../state/persist";
 import { repoRefs } from "../../state/refs";
 import { changesRepoForNode } from "../../state/changesScope";
-import { selectFile, selectedFile, setChangesRepoId, jumpToCommit, setDetailsTab, setSelectedCommit } from "../../state/selection";
+import { fileFor, mainTab, selectFile, setChangesRepoId, jumpToCommit, setDetailsTab, setSelectedCommit } from "../../state/selection";
 import {
   repoById, activeProject, addProject, focusedRepoIdSignal, isRepoFilterActive, projectRepos, rescanProject, selectAllRepos, selectOnlyRepo, selectedRepoIds,
   setFocusedRepoId, setSelectedRepoIds, summary, toggleRepo,
@@ -204,10 +204,12 @@ export function Sidebar(): JSX.Element {
     if (only) setChangesRepoId(only);
     if (n.kind === "more") setMoreOpen(new Set([...moreOpen(), n.groupId]));
     if (n.kind === "stash") {
-      // The stash shows its files in "Changed files". A commit file open before is dropped.
-      setSelectedCommit({ repoId: n.repoId, oid: n.stash.oid, stash: { index: n.stash.index } });
-      if (selectedFile()?.spec.kind === "commit") selectFile(null);
-      setDetailsTab("files");
+      // The stash shows its files in "Changed files" of the active main tab (the Log commit, or the stash of Local
+      // changes). A commit file open before in that main tab is dropped.
+      const tab = mainTab();
+      setSelectedCommit({ repoId: n.repoId, oid: n.stash.oid, stash: { index: n.stash.index } }, { tab });
+      if (fileFor(tab)?.spec.kind === "commit") selectFile(null, { tab });
+      setDetailsTab("files", tab);
     }
   };
 
@@ -236,7 +238,8 @@ export function Sidebar(): JSX.Element {
     } else if (n.kind === "branch") jumpToCommit({ repoId: n.repoId, oid: n.branch.oid });
     else if (n.kind === "remoteBranch") jumpToCommit({ repoId: n.repoId, oid: n.remote.oid });
     else if (n.kind === "tag") jumpToCommit({ repoId: n.repoId, oid: n.tag.oid });
-    else if (n.kind === "stash") jumpToCommit({ repoId: n.repoId, oid: n.stash.oid, stash: { index: n.stash.index } });
+    // On Local changes, `select` already showed the stash there: the Log commit stays.
+    else if (n.kind === "stash" && mainTab() === "log") jumpToCommit({ repoId: n.repoId, oid: n.stash.oid, stash: { index: n.stash.index } });
   };
 
   const activate = (n: SidebarNode) => {

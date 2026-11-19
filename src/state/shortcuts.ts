@@ -26,13 +26,14 @@ export function registerGlobalShortcuts(): void {
   register("tool.diff", "Ctrl+D", () => setDetailsTab("diff"), { title: "Show file changes (the diff)", group: "Tool windows", allowInInput: true });
   register("tool.changedFiles", [], () => setDetailsTab("files"), { title: "Show changed files (Esc in the diff)", group: "Tool windows" });
   // Esc inside the diff goes back to the file tree. The log's own Esc ("return focus to the log") ignores the diff tab.
+  // Each main tab has its own file tree: focus the visible one.
   register(
     "diff.back",
     "Esc",
     () => {
       if (!inFileChanges()) return false;
       setDetailsTab("files");
-      queueMicrotask(() => document.querySelector<HTMLElement>('[data-details-view="files"] [role="tree"]')?.focus());
+      queueMicrotask(() => document.querySelector<HTMLElement>('[data-details-view="files"] .dg-details:not([hidden]) [role="tree"]')?.focus());
     },
     { when: () => detailsTab() === "diff" },
   );
