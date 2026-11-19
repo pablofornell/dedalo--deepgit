@@ -22,6 +22,7 @@ import { activeProject, selectedRepos } from "../../state/workspace";
 import { keysFor, formatKeys, register } from "../../state/keymap";
 import { loadPersisted, savePersisted } from "../../state/persist";
 import { DEFAULT_RATIOS, allocate, maxBottom, ratioFor, sanitizeRatios, type Mins, type Ratios } from "./heights";
+import { detailsPrefs, detailsResetCount, setDetailsWidth } from "./detailsWidth";
 import { MIN_DETAILS, clampDetails, defaultDetails, defaultRatio, detailsPersistKey, maxDetails, maximizedDetails, type MainTabKey } from "./widths";
 import "./shell.css";
 
@@ -60,12 +61,7 @@ const keyOf = (id: string) => {
 
 export function Shell(): JSX.Element {
   const [sidebarW, setSidebarW] = createSignal(loadSplitSize("sidebar", 280));
-  // Width of the right column, one per main tab: the persisted px (NaN = never dragged: the tab's default share of the
-  // row), clamped on every use. The log keeps a wide main island; Local changes gives the space to the diff.
-  const [detailsPrefs, setDetailsPrefs] = createSignal<Record<MainTabKey, number>>({
-    log: loadSplitSize(detailsPersistKey("log"), Number.NaN),
-    changes: loadSplitSize(detailsPersistKey("changes"), Number.NaN),
-  });
+  // Width of the right column, one per main tab, kept in `detailsWidth.ts` so Settings can reset it.
   const tabKey = (): MainTabKey => (mainTab() === "changes" ? "changes" : "log");
   // A drag belongs to the tab it started on, even if a shortcut switches the tab mid-drag. The lock is released in a
   // microtask, after the Splitter has saved the final width under the locked key.
@@ -86,7 +82,7 @@ export function Shell(): JSX.Element {
   const resizeDetails = (px: number) => {
     setMaximized(false);
     const k = resizeKey();
-    setDetailsPrefs((p) => ({ ...p, [k]: px }));
+    setDetailsWidth(k, px);
   };
   const mins = (): Mins => ({ top: tokenPx("--dg-shell-main-min-height", 260), bottom: MIN_BOTTOM });
   const heights = createMemo(() => allocate(centerH() || 900, SPLIT, bottomTool() !== null, ratios(), mins()));
@@ -113,6 +109,8 @@ export function Shell(): JSX.Element {
 
   // The maximized column only makes sense on "File changes": leaving that tab restores the width.
   createEffect(on(detailsTab, (t) => t !== "diff" && setMaximized(false), { defer: true }));
+  // A reset in Settings also restores a maximized column, so the new width is visible at once.
+  createEffect(on(detailsResetCount, () => setMaximized(false), { defer: true }));
   // A click or Enter in the file tree hides the tree under the focus: move the focus into the diff so Esc works at once.
   // (A file chosen in the Local changes list keeps the focus there.)
   createEffect(

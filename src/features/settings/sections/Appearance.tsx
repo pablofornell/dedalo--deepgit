@@ -1,6 +1,6 @@
 /** Appearance: theme, text and editor sizes, page zoom, row density, date format, how long alerts stay. */
 import { type JSX } from "solid-js";
-import { Checkbox, SegmentedControl, Select, THEME_ICONS } from "../../../components/ui";
+import { Button, Checkbox, SegmentedControl, Select, THEME_ICONS } from "../../../components/ui";
 import {
   EDITOR_FONT_SIZE_DEFAULT, FONT_SIZE_MAX, FONT_SIZE_MIN, UI_SCALE_MAX, UI_SCALE_MIN, UI_SCALE_STEP, effectiveEditorFontSize,
 } from "../../../state/appearance";
@@ -8,6 +8,8 @@ import { alertExpiryLabel } from "../../../state/alertsCore";
 import { dateExample, formatDate } from "../../../state/dates";
 import { formatKeys } from "../../../state/keymap";
 import { ALERT_EXPIRY_CHOICES, type DateFormat, type ThemePref, resetSettings, setSetting, settings } from "../../../state/settings";
+import { detailsWidthsAreDefault, resetDetailsWidths } from "../../shell/detailsWidth";
+import { DEFAULT_CHANGES_DETAILS_RATIO, DEFAULT_DETAILS_RATIO } from "../../shell/widths";
 import { registerSettingsSection } from "../registry";
 import { type Choice, ChoiceList, Row, Section, SizeControl } from "../widgets";
 
@@ -24,6 +26,9 @@ const DATES: Choice<DateFormat>[] = [
 const ALERT_EXPIRIES = ALERT_EXPIRY_CHOICES.map((h) => ({ value: String(h), label: alertExpiryLabel(h) }));
 /** Times of the two preview commits, before now. */
 const PREVIEW_AGO = [4 * 60, 26 * 3600];
+
+/** A share of the row as text: 0.42 gives "42 %". */
+const percent = (ratio: number) => `${Math.round(ratio * 100)} %`;
 
 /** Live sample: what the current sizes and date format look like. */
 function Preview(): JSX.Element {
@@ -97,6 +102,17 @@ function AppearanceSection(): JSX.Element {
         <Preview />
       </Section>
 
+      <Section title="Layout">
+        <Row
+          label="Right column width"
+          hint={`Log and Local changes keep their own width. Reset gives Log ${percent(DEFAULT_DETAILS_RATIO)} and Local changes ${percent(DEFAULT_CHANGES_DETAILS_RATIO)} of the row.`}
+        >
+          <Button size="small" variant="ghost" icon="undo" disabled={detailsWidthsAreDefault()} onClick={resetDetailsWidths} title="Back to the default widths">
+            Reset
+          </Button>
+        </Row>
+      </Section>
+
       <Section title="Lists and dates">
         <Row label="Comfortable rows" hint="Taller rows in the log.">
           <Checkbox checked={settings.comfortableRows} ariaLabel="Comfortable rows" onChange={(v) => setSetting("comfortableRows", v)} />
@@ -127,5 +143,8 @@ registerSettingsSection({
   icon: "palette",
   keywords: ["theme", "dark", "light", "font", "size", "zoom", "scale", "text", "editor", "rows", "density", "date", "eyes", "bigger", "notifications", "alerts", "expire"],
   component: AppearanceSection,
-  reset: () => resetSettings(["theme", "fontSize", "editorFontSize", "uiScale", "comfortableRows", "dateFormat", "alertExpiryHours"]),
+  reset: () => {
+    resetSettings(["theme", "fontSize", "editorFontSize", "uiScale", "comfortableRows", "dateFormat", "alertExpiryHours"]);
+    resetDetailsWidths();
+  },
 });
