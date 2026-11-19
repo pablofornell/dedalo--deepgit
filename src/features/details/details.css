@@ -1,5 +1,6 @@
 /* Commit details island (DESIGN.md 5.8, 5.9). Prefix dg-details-. Tokens only. */
 .dg-details { display: flex; flex-direction: column; height: 100%; min-height: 0; min-width: 0; }
+.dg-details[hidden] { display: none; }
 .dg-details-head { height: var(--dg-panel-header-height); flex: none; display: flex; align-items: center; gap: 2px; padding: var(--dg-panel-header-padding); }
 .dg-details-title { font-weight: var(--dg-weight-semibold); }
 .dg-details-grow { flex: 1; min-width: 0; }

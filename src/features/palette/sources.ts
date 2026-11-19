@@ -206,7 +206,9 @@ export function activate(item: PaletteItem): void {
       jumpToCommit({ repoId: item.repoId, oid: item.oid });
       setMainTab("log");
       return;
-    case "file":
+    case "file": {
+      // A commit file opens in the right column of the Log tab, a working tree file in the one of Local changes.
+      const tab = item.spec.kind === "commit" ? "log" : "changes";
       if (item.spec.kind === "commit") {
         setSelectedCommit({ repoId: item.repoId, oid: item.spec.oid });
         setMainTab("log");
@@ -214,8 +216,9 @@ export function activate(item: PaletteItem): void {
         setChangesRepoId(item.repoId);
         setMainTab("changes");
       }
-      selectFile({ repoId: item.repoId, spec: item.spec, path: item.path, oldPath: item.oldPath });
+      selectFile({ repoId: item.repoId, spec: item.spec, path: item.path, oldPath: item.oldPath }, { tab });
       return;
+    }
     case "repo":
       selectOnlyRepo(item.repoId);
       setFocusedRepoId(item.repoId);

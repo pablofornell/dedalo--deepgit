@@ -8,7 +8,7 @@ import { notifyRepoChanged } from "./events";
 import { openBottomTool, toggleBottomTool, toggleSidebar } from "./layout";
 import { register } from "./keymap";
 import { inTextField, navBack, navForward } from "./navigation";
-import { detailsTab, mainTab, setDetailsTab, setMainTab } from "./selection";
+import { detailsCommit, detailsTab, mainTab, selectedFile, setDetailsTab, setMainTab } from "./selection";
 import { toggleTheme } from "./settings";
 import { activeProject, focusedRepo, projectRepos, refreshSummaries } from "./workspace";
 
@@ -25,14 +25,22 @@ export function registerGlobalShortcuts(): void {
   register("tool.console", "Alt+9", () => toggleBottomTool("console"), { title: "Toggle git console", group: "Tool windows" });
   register("tool.diff", "Ctrl+D", () => setDetailsTab("diff"), { title: "Show file changes (the diff)", group: "Tool windows", allowInInput: true });
   register("tool.changedFiles", [], () => setDetailsTab("files"), { title: "Show changed files (Esc in the diff)", group: "Tool windows" });
-  // Esc inside the diff goes back to the file tree. The log's own Esc ("return focus to the log") ignores the diff tab.
+  // Esc inside the diff goes back to the file tree (on Local changes with no stash: to the Local changes list). The log's own Esc ("return focus to the log") ignores the diff tab.
+  // Each main tab has its own file tree: focus the visible one.
   register(
     "diff.back",
     "Esc",
     () => {
       if (!inFileChanges()) return false;
+      // Local changes with no stash open has an empty "Changed files": keep the diff and go back to the list of the file.
+      if (mainTab() === "changes" && !detailsCommit()) {
+        const pane = selectedFile()?.spec.kind === "staged" ? ".dg-changes-pane.is-staged" : ".dg-changes-pane:not(.is-staged)";
+        const view = ".dg-shell-view:not([hidden])";
+        (document.querySelector<HTMLElement>(`${view} ${pane} .dg-changes-list`) ?? document.querySelector<HTMLElement>(`${view} .dg-changes-list`))?.focus();
+        return;
+      }
       setDetailsTab("files");
-      queueMicrotask(() => document.querySelector<HTMLElement>('[data-details-view="files"] [role="tree"]')?.focus());
+      queueMicrotask(() => document.querySelector<HTMLElement>('[data-details-view="files"] .dg-details:not([hidden]) [role="tree"]')?.focus());
     },
     { when: () => detailsTab() === "diff" },
   );
