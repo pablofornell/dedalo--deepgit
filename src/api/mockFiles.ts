@@ -3,6 +3,7 @@
  * (`list_files`, `read_text_file`, `write_text_file`). The rules are those of crates/gitcore/src/files.rs.
  * One difference: the mock also refuses Windows-style paths.
  */
+import { dominantEol, textLines } from "./ignoreBlocks";
 import { fileText } from "./mockDiff";
 import type { FileList, TextFile } from "./types";
 
@@ -126,7 +127,7 @@ export function ignorePatternError(pattern: string): string | null {
  * not end with one. The new lines use `\r\n` when the file does.
  */
 export function appendIgnoreLines(existing: string, patterns: readonly string[]): { text: string; added: string[] } {
-  const known = new Set(existing.split(/\r?\n/));
+  const known = new Set(textLines(existing));
   const added: string[] = [];
   for (const p of patterns) {
     if (known.has(p)) continue;
@@ -134,7 +135,7 @@ export function appendIgnoreLines(existing: string, patterns: readonly string[])
     added.push(p);
   }
   if (added.length === 0) return { text: existing, added };
-  const eol = existing.includes("\r\n") ? "\r\n" : "\n";
+  const eol = dominantEol(existing);
   const lead = existing !== "" && !existing.endsWith("\n") ? eol : "";
   return { text: existing + lead + added.map((l) => l + eol).join(""), added };
 }

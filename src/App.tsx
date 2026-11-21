@@ -14,6 +14,7 @@ import { Shell } from "./features/shell/Shell";
 import { Welcome } from "./features/welcome/Welcome";
 import { startAutoFetch } from "./state/autoFetch";
 import { startEvents } from "./state/events";
+import { startFocusRefresh } from "./state/focusRefresh";
 import { installKeymap } from "./state/keymap";
 import { startNavigation } from "./state/navigation";
 import { initSettings } from "./state/settings";
@@ -25,6 +26,7 @@ export default function App(): JSX.Element {
     initSettings();
     startEvents();
     startAutoFetch();
+    startFocusRefresh();
     registerAllDialogs();
     registerSettings();
     registerMergeDialogs();

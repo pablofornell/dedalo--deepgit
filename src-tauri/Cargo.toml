@@ -24,7 +24,6 @@ tauri-plugin-opener = "=2.7.2"
 gitcore = { path = "../crates/gitcore" }
 askpass = { path = "../crates/askpass" }
 notify = "6"
-notify-debouncer-mini = "0.4"
 sha1_smol = "1"
 serde = { workspace = true }
 serde_json = { workspace = true }

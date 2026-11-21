@@ -4,6 +4,7 @@
  * check of lines that the target file holds already.
  */
 import ignore from "ignore";
+import type { IgnoreTarget } from "../../api/types";
 
 /** A file or a folder to ignore. `path` is relative to the repo root, with `/` separators. */
 export interface IgnoreItem {
@@ -11,7 +12,7 @@ export interface IgnoreItem {
   isDir: boolean;
 }
 
-export type OptionKind = "file" | "name" | "ext" | "folder" | "folderName" | "these" | "custom";
+export type OptionKind = "file" | "name" | "ext" | "folder" | "folderName" | "these" | "theseNames" | "custom";
 
 export interface PatternOption {
   kind: OptionKind;
@@ -84,6 +85,21 @@ export function thesePatterns(items: readonly IgnoreItem[]): string[] {
   return [...new Set(lines)];
 }
 
+/**
+ * The options that name a path of the repository: they start with `/`. A rule of the global ignore file applies to every
+ * repository, so these do not fit there.
+ */
+export const isAnchored = (kind: OptionKind): boolean => kind === "file" || kind === "folder" || kind === "these";
+
+/** One line for each item by its name alone (`/` at the end for a folder): the lines of `these`, for the global file. Repeated lines come once. */
+export function theseNamePatterns(items: readonly IgnoreItem[]): string[] {
+  const lines = items.map((i) => escapeSegment(baseName(cleanPath(i.path))) + (i.isDir ? "/" : ""));
+  return [...new Set(lines)];
+}
+
+/** True when a line names a path (it has a `/` that is not the last character): it is relative to a repository root. */
+export const namesAPath = (line: string): boolean => line.replace(/^!/, "").replace(/\/$/, "").includes("/");
+
 /** The lines of a text: one pattern each. Empty lines and a trailing `\r` go away. */
 export function parseLines(text: string): string[] {
   return text
@@ -145,4 +161,28 @@ export function trackedNote(n: number): string | null {
 /** The title of the success toast: the pattern when there is one, else the number of patterns (section 11.7, rule 5). */
 export function addedTitle(added: readonly string[], targetName: string): string {
   return added.length === 1 ? `Added ${added[0]} to ${targetName}` : `Added ${added.length} patterns to ${targetName}`;
+}
+
+/** What the messages call a target file. */
+export const targetName = (t: IgnoreTarget): string => (t === "gitignore" ? ".gitignore" : t === "exclude" ? ".git/info/exclude" : "the global ignore file");
+
+/** The options of the "Add to" list: the file and who sees the rule. */
+export const TARGET_LABEL: Record<IgnoreTarget, string> = {
+  gitignore: "This repository (.gitignore, shared)",
+  exclude: "This repository only (.git/info/exclude, not shared)",
+  global: "All repositories (global ignore file)",
+};
+
+/** One line under the "Add to" list: who the rule applies to. */
+export const TARGET_SCOPE: Record<IgnoreTarget, string> = {
+  gitignore: "Applies to this repository and is shared with everyone who clones it. Commit the file.",
+  exclude: "Applies to this repository only. The rule stays on this computer.",
+  global: "Applies to every repository on this computer. Not shared with anyone.",
+};
+
+/** The body of the success toast of an add. `where` is the file (the path for the global file). */
+export function addedBody(target: IgnoreTarget, repoName: string, where: string): string {
+  if (target === "gitignore") return `${where}. Commit it when you are ready.`;
+  if (target === "exclude") return `${where} of ${repoName}. The rule stays on this computer.`;
+  return `${where}. It applies to every repository on this computer.`;
 }

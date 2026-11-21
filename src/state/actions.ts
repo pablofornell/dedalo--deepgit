@@ -17,7 +17,7 @@
  */
 import { ApiError, toApiError } from "../api/tauri";
 import * as api from "../api/tauri";
-import type { CloneOpts, CloneProgress, CloneResult, ConflictSide, ExpectedOids, HunkOpts, OpResult } from "../api/types";
+import type { CloneOpts, CloneProgress, CloneResult, ConflictSide, ExpectedOids, HunkOpts, IgnoreTarget, OpResult } from "../api/types";
 import { joinNames, plural, toast, type ToastAction } from "../components/ui";
 import { beginActivity } from "./activity";
 import { dismissAutoFetchFor } from "./alerts";
@@ -930,6 +930,16 @@ export async function openMerge(repoId: string, path: string, opts: { offerConti
 export async function addToIgnore(repoId: string, items: { path: string; isDir: boolean }[]): Promise<void> {
   if (items.length === 0 || !repoById(repoId)) return;
   await showDialog("ignore", { repoId, items });
+}
+
+/**
+ * Opens the "Gitignore templates" dialog of a repo: ready-made rules for a language, a build tool, an editor or a system, with a
+ * scan that finds the ones the repo needs. The dialog writes the blocks (`api.appendIgnoreBlocks`) and shows the success toast.
+ * `target` is the file it starts with.
+ */
+export async function openIgnoreTemplates(repoId: string, target?: IgnoreTarget): Promise<void> {
+  if (!repoById(repoId)) return;
+  await showDialog("ignoreTemplates", { repoId, target });
 }
 
 /** Opens the quick editor for a working tree file (dialog "quickEdit"). The backend refreshes the status when it saves. */

@@ -75,6 +75,7 @@ function repoMenu(n: Node<"repo">): MenuItem[] {
     { label: "New branch…", icon: "newBranch", onSelect: () => void actions.createBranch([id], "HEAD", { startLabel: `${repo?.name ?? id} @ HEAD` }) },
     { label: "Stash changes…", icon: "stashPush", onSelect: () => void actions.stashSave([id]) },
     { label: "Show local changes", icon: "changes", onSelect: () => { setChangesRepoId(id); setMainTab("changes"); } },
+    { label: "Gitignore templates…", icon: "list", onSelect: () => void actions.openIgnoreTemplates(id) },
     { separator: true },
     { label: "Copy path", icon: "copy", onSelect: () => void copyText(repo?.path ?? "") },
   );

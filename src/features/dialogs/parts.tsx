@@ -65,6 +65,8 @@ export interface RadioOption<T extends string> {
   danger?: boolean;
   /** Writes the description in the mono font (a pattern, a path). */
   mono?: boolean;
+  /** Cannot be picked (grey). The description says why. */
+  disabled?: boolean;
 }
 
 /** Radio list with a description under each label. Arrow keys move the choice (native radios). */
@@ -81,8 +83,16 @@ export function RadioGroup<T extends string>(props: {
     <div class="dg-dialogs-radios" role="radiogroup" aria-label={props.label}>
       <For each={props.options}>
         {(o) => (
-          <label class="dg-dialogs-radio" classList={{ "is-on": props.value === o.value, "is-danger": o.danger }}>
-            <input class="dg-dialogs-radio-input" type="radio" name={props.name} value={o.value} checked={props.value === o.value} onChange={() => props.onChange(o.value)} />
+          <label class="dg-dialogs-radio" classList={{ "is-on": props.value === o.value, "is-danger": o.danger, "is-disabled": o.disabled }}>
+            <input
+              class="dg-dialogs-radio-input"
+              type="radio"
+              name={props.name}
+              value={o.value}
+              checked={props.value === o.value}
+              disabled={o.disabled}
+              onChange={() => props.onChange(o.value)}
+            />
             <span class="dg-dialogs-radio-dot" aria-hidden="true" />
             <span class="dg-dialogs-radio-text">
               <span class="dg-dialogs-radio-label">{o.label}</span>

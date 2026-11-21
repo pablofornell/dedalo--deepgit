@@ -9,6 +9,8 @@ import {
 } from "./aboutInfo";
 import "./dialogs.css";
 
+const AUTHOR = "Pablo Fornell";
+
 const LINKS: { label: string; url: string }[] = [
   { label: "GitHub repository", url: REPO_URL },
   { label: "Releases", url: RELEASES_URL },
@@ -47,6 +49,7 @@ export function AboutDialog(props: AboutProps & DialogComponentProps<void>): JSX
         <div class="dg-dialogs-about-name">
           <span class="dg-dialogs-about-title">{APP_NAME}</span>
           <span class="dg-dialogs-hint">A Git client for projects with many repositories.</span>
+          <span class="dg-dialogs-hint">Created by {AUTHOR}</span>
         </div>
       </div>
       <dl class="dg-dialogs-about-facts">

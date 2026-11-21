@@ -184,6 +184,12 @@ describe("mock files: ignore files", () => {
     expect(again.unstaged.filter((f) => f.path === ".gitignore")).toHaveLength(1);
   });
 
+  it("writes new lines with the dominant line end and sees a first line behind a byte order mark", () => {
+    expect(appendIgnoreLines("a\r\nb\nc\nd\n", ["x/"]).text).toBe("a\r\nb\nc\nd\nx/\n");
+    expect(appendIgnoreLines("a\r\nb\r\nc\n", ["x/"]).text).toBe("a\r\nb\r\nc\nx/\r\n");
+    expect(appendIgnoreLines("\ufefftarget/\n", ["target/", "y/"])).toEqual({ text: "\ufefftarget/\ny/\n", added: ["y/"] });
+  });
+
   it("skips a line that the file holds already", async () => {
     const ledger = await repoNamed("ledger-service");
     expect(await append(ledger, "gitignore", ["*.log", "gen/"])).toEqual(["gen/"]);
@@ -202,6 +208,85 @@ describe("mock files: ignore files", () => {
     expect(await append(shared, "exclude", ["/local.env"])).toEqual(["/local.env"]);
     expect(await readIgnore(shared, "exclude")).toBe("/local.env\n");
     expect(await readIgnore(shared, "gitignore")).not.toContain("/local.env");
+  });
+
+  it("keeps one global ignore file for every repo, with its path", async () => {
+    const a = await repoNamed("refunds-worker");
+    const b = await repoNamed("shared-proto");
+    const before = await readIgnoreFile(a, "global");
+    expect(before.path).toMatch(/\.config\/git\/ignore$/);
+    expect(await append(a, "global", ["*.swp"])).toEqual(["*.swp"]);
+    // The other repo reads the same file.
+    expect(await readIgnore(b, "global")).toBe(before.content + "*.swp\n");
+    expect((await readIgnoreFile(b, "global")).path).toBe(before.path);
+    expect(await append(b, "global", ["*.swp"])).toEqual([]);
+    // The path of the other targets is in the repo.
+    expect((await readIgnoreFile(a, "gitignore")).path).toMatch(/\/\.gitignore$/);
+    expect((await readIgnoreFile(a, "exclude")).path).toMatch(/\/\.git\/info\/exclude$/);
+  });
+
+  it("a global rule hides the untracked files of every repo and tells each one", async () => {
+    const writer = await repoNamed("deepgit");
+    const other = await repoNamed("api-gateway");
+    const wt = await call<WorkingTree>("working_tree", { repoId: other });
+    const path = wt.unstaged.find((f) => f.status === "untracked" && f.path.endsWith(".svg"))?.path ?? "";
+    expect(path).not.toBe("");
+    expect((await call<FileList>("list_files", { repoId: other })).files).toContain(path);
+    const seen: string[] = [];
+    const off = mockListen("repo-changed", (p) => seen.push((p as { repoId: string }).repoId));
+    await append(writer, "global", ["*.svg"]);
+    await new Promise((r) => setTimeout(r, 250));
+    off();
+    expect(seen).toContain(writer);
+    expect(seen).toContain(other);
+    expect((await call<FileList>("list_files", { repoId: other })).files).not.toContain(path);
+  });
+
+  it("gives the global file the lowest priority: .gitignore keeps a file that it re-includes", async () => {
+    const repo = await repoNamed("deepgit");
+    const wt = await call<WorkingTree>("working_tree", { repoId: repo });
+    const path = wt.unstaged.find((f) => f.status === "untracked" && f.path.endsWith(".ts"))?.path ?? "";
+    expect(path).not.toBe("");
+    // `.gitignore` says `!path`, the global file says `path`: git keeps the file.
+    await append(repo, "gitignore", [`!/${path}`]);
+    await append(repo, "global", [`/${path}`]);
+    expect((await call<FileList>("list_files", { repoId: repo })).files).toContain(path);
+    expect((await call<WorkingTree>("working_tree", { repoId: repo })).unstaged.map((f) => f.path)).toContain(path);
+    // `.git/info/exclude` comes between: it beats the global file and loses to `.gitignore`.
+    await append(repo, "exclude", [`/${path}`]);
+    expect((await call<FileList>("list_files", { repoId: repo })).files).toContain(path);
+  });
+
+  it("adds templates in the order of the templates", async () => {
+    const web = await repoNamed("web-checkout");
+    const java = "# --- DeepGit template: Java ---";
+    const gradle = "# --- DeepGit template: Gradle ---";
+    const order = [java, gradle];
+    await call<string[]>("append_ignore_blocks", { repoId: web, target: "exclude", blocks: [{ header: gradle, lines: ["# Wrapper", "!gradle-wrapper.jar"] }], order });
+    await call<string[]>("append_ignore_blocks", { repoId: web, target: "exclude", blocks: [{ header: java, lines: ["*.jar"] }], order });
+    const text = await readIgnore(web, "exclude");
+    expect(text.indexOf(java)).toBeGreaterThan(-1);
+    expect(text.indexOf(java)).toBeLessThan(text.indexOf(gradle));
+    expect(text.indexOf("*.jar")).toBeLessThan(text.indexOf("!gradle-wrapper.jar"));
+  });
+
+  it("adds templates as blocks, once", async () => {
+    const web = await repoNamed("shared-proto");
+    const blocks = [
+      { header: "# --- DeepGit template: Rust ---", lines: ["# Cargo", "target/", "", "*.pdb"] },
+      { header: "# --- DeepGit template: Linux ---", lines: ["*~"] },
+    ];
+    const before = await readIgnore(web, "exclude");
+    expect(await call<string[]>("append_ignore_blocks", { repoId: web, target: "exclude", blocks, order: [] })).toEqual(blocks.map((b) => b.header));
+    expect(await readIgnore(web, "exclude")).toBe(
+      before + (before === "" ? "" : "\n") + "# --- DeepGit template: Rust ---\n# Cargo\ntarget/\n\n*.pdb\n\n# --- DeepGit template: Linux ---\n*~\n",
+    );
+    expect(await call<string[]>("append_ignore_blocks", { repoId: web, target: "exclude", blocks, order: [] })).toEqual([]);
+    expect(await rejected(call("append_ignore_blocks", { repoId: web, target: "exclude", blocks: [{ header: "target/", lines: [] }], order: [] }))).toEqual({
+      message: "The header of a block must be a comment.",
+    });
+    expect((await rejected(call("append_ignore_blocks", { repoId: web, target: "exclude", order: [] }))).message).toContain("missing required key blocks");
+    expect((await rejected(call("append_ignore_blocks", { repoId: web, target: "exclude", blocks: [] }))).message).toContain("missing required key order");
   });
 
   it("refuses an empty pattern, a line break and an unknown target", async () => {

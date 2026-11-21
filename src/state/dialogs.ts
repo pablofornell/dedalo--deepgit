@@ -205,6 +205,17 @@ export interface IgnoreResult {
   /** The lines that were added (a line that the file held already is not here). */
   added: string[];
 }
+export interface IgnoreTemplatesProps {
+  repoId: string;
+  /** The file the dialog starts with (default `.gitignore`). */
+  target?: IgnoreTarget;
+}
+export interface IgnoreTemplatesResult {
+  /** The file that got the templates. */
+  target: IgnoreTarget;
+  /** The header lines of the templates that were added. */
+  added: string[];
+}
 export interface InitRepositoryProps {
   /** What `projectInitInfo` said about the folder that has no repository. */
   info: InitInfo;
@@ -238,6 +249,7 @@ export interface DialogRegistry {
   quickEdit: { props: QuickEditProps; result: void };
   renameProject: { props: RenameProjectProps; result: RenameProjectResult };
   ignore: { props: IgnoreProps; result: IgnoreResult };
+  ignoreTemplates: { props: IgnoreTemplatesProps; result: IgnoreTemplatesResult };
   initRepository: { props: InitRepositoryProps; result: InitRepositoryResult };
 }
 

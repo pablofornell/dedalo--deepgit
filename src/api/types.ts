@@ -336,15 +336,32 @@ export interface TextFile {
   tooLarge: boolean;
 }
 
-/** The file `appendIgnoreRules` writes: `.gitignore` at the repo root, or `.git/info/exclude` (only on this computer). */
-export type IgnoreTarget = "gitignore" | "exclude";
+/**
+ * The file `appendIgnoreRules` writes: `.gitignore` at the repo root (shared), `.git/info/exclude` (this repository only, not
+ * shared), or git's global excludes file (every repository on this computer: `core.excludesFile`, else `~/.config/git/ignore`).
+ */
+export type IgnoreTarget = "gitignore" | "exclude" | "global";
 
 /** An ignore file with the case rule of its repo. */
 export interface IgnoreFile {
   /** The text. Empty when the file does not exist. */
   content: string;
+  /** The absolute path of the file, also when it does not exist yet. */
+  path: string;
   /** `core.ignorecase` of the repo (false when unset). Git then matches ignore patterns without regard to case. */
   ignoreCase: boolean;
+  /** Only for the global file: the `core.excludesFile` that the repo sets in its own config. Git reads that file in this repo, not the global one. Null when the repo sets none. */
+  localExcludesFile: string | null;
+  /** A template can go inside the file, between its lines. False for a file that is not UTF-8: it only grows at its end. */
+  canInsert: boolean;
+}
+
+/** A template of ignore rules for `appendIgnoreBlocks`. */
+export interface IgnoreBlock {
+  /** The marker line, a comment (`# --- DeepGit template: Rust ---`). A file that holds it already gets nothing. */
+  header: string;
+  /** Patterns, comments (start with `#`) and empty lines, in file order. */
+  lines: string[];
 }
 
 // ---------------------------------------------------------------- console, events, results

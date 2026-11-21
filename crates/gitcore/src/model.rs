@@ -462,12 +462,14 @@ pub struct FileList {
     pub truncated: bool,
 }
 
-/// The file that `append_ignore_rules` writes: `.gitignore` at the repo root, or `.git/info/exclude`.
+/// The file that `append_ignore_rules` writes: `.gitignore` at the repo root, `.git/info/exclude`
+/// (this repository only, not shared), or git's global excludes file (every repository of this computer).
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum IgnoreTarget {
     Gitignore,
     Exclude,
+    Global,
 }
 
 /// An ignore file with the case rule of its repo.
@@ -476,8 +478,26 @@ pub enum IgnoreTarget {
 pub struct IgnoreFile {
     /// The text. Empty when the file does not exist.
     pub content: String,
+    /// The absolute path of the file (also when it does not exist yet).
+    pub path: String,
     /// `core.ignorecase` of the repo. Git then matches ignore patterns without regard to case. False when unset.
     pub ignore_case: bool,
+    /// Only for the global file: the `core.excludesFile` that the repo sets in its own config. Git reads that file
+    /// in this repo, not the global one. None when the repo sets none.
+    pub local_excludes_file: Option<String>,
+    /// A template can go inside the file, between its lines. False for a file that is not UTF-8: it only grows at its end.
+    pub can_insert: bool,
+}
+
+/// A block of lines for `append_ignore_blocks`: a template of ignore rules. `header` is a comment
+/// line (`# --- DeepGit template: Rust ---`) that marks the block, so a second add finds it.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct IgnoreBlock {
+    /// The marker line. It starts with `#`.
+    pub header: String,
+    /// Patterns, comments (start with `#`) and empty lines, in file order.
+    pub lines: Vec<String>,
 }
 
 /// A worktree file read as text.

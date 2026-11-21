@@ -45,6 +45,14 @@ const EXTRAS: ExtraAction[] = [
       else toast({ kind: "info", title: "No file selected", body: "Select a file in Local changes or in a commit, then edit it." });
     },
   },
+  {
+    key: "x.ignoreTemplates", title: "Gitignore templates…", icon: "list", group: "File",
+    run: () => {
+      const r = focusedRepo();
+      if (r) void actions.openIgnoreTemplates(r.id);
+      else toast({ kind: "info", title: "No repository", body: "Add a project with a repository, then add its gitignore templates." });
+    },
+  },
   { key: "x.showLog", title: "Show log", icon: "log", group: "View", run: () => setMainTab("log") },
   { key: "x.allRepos", title: "Show all repositories in the log", icon: "repo", group: "View", run: selectAllRepos },
   { key: "x.toggleGraph", title: "Toggle commit graph", icon: "log", group: "View", run: () => setSetting("showGraph", !settings.showGraph) },

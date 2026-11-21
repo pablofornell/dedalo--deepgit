@@ -14,7 +14,7 @@
  */
 import type {
   ApiErrorShape, AuthNotice, AuthPrompt, CloneOpts, CloneProgress, CloneResult, CloneTarget, CommitDetails, ConflictEntry, ConflictSide, ConflictVersions,
-  ConsoleEntry, DiffSpec, ExpectedOids, FileDiff, FileImages, FileList, IgnoreFile, IgnoreTarget, InitInfo, LogQuery, LogSessionInfo, MergeOpts, OpResult, Project, CommitRow, HunkOpts, RepoChanged, RepoSummary, Refs,
+  ConsoleEntry, DiffSpec, ExpectedOids, FileDiff, FileImages, FileList, IgnoreBlock, IgnoreFile, IgnoreTarget, InitInfo, LogQuery, LogSessionInfo, MergeOpts, OpResult, Project, CommitRow, HunkOpts, RepoChanged, RepoSummary, Refs,
   ResetMode, StashUntracked, TextFile, Workspace, WorkingTree,
 } from "./types";
 
@@ -117,7 +117,7 @@ export const lastCommitMessage = (repoId: string) => invoke<string>("last_commit
 export const listFiles = (repoId: string) => invoke<FileList>("list_files", { repoId });
 /** A worktree file as text (2 MiB at most). Binary and too large files give empty content and a flag. */
 export const readTextFile = (repoId: string, path: string) => invoke<TextFile>("read_text_file", { repoId, path });
-/** The text of `.gitignore` (repo root) or `.git/info/exclude` (empty when the file does not exist), and `core.ignorecase` of the repo. */
+/** The text of `.gitignore` (repo root), `.git/info/exclude` or the global ignore file (empty when the file does not exist), its path, and `core.ignorecase` of the repo. */
 export const readIgnoreFile = (repoId: string, target: IgnoreTarget) => invoke<IgnoreFile>("read_ignore_file", { repoId, target });
 
 // ---------------------------------------------------------------- 5.4 write (each emits repo-changed)
@@ -147,11 +147,20 @@ export const discardHunk = (repoId: string, path: string, hunkIndex: number, opt
 export const writeTextFile = (repoId: string, path: string, content: string, expectedVersion: string | null) =>
   invoke<string>("write_text_file", { repoId, path, content, expectedVersion });
 /**
- * Adds pattern lines at the end of `.gitignore` or `.git/info/exclude` (creates the file). A line that the file holds
- * already is skipped. Returns the lines that were added. Does not stage and does not commit.
+ * Adds pattern lines at the end of `.gitignore`, `.git/info/exclude` or the global ignore file (creates the file). A line
+ * that the file holds already is skipped. Returns the lines that were added. Does not stage and does not commit.
  */
 export const appendIgnoreRules = (repoId: string, target: IgnoreTarget, patterns: string[]) =>
   invoke<string[]>("append_ignore_rules", { repoId, target, patterns });
+/**
+ * Adds templates (blocks of rules, `state/gitignoreTemplates.ts`) to an ignore file. Each block goes after an empty
+ * line and its header, in the place that keeps the file in the order of `order` (the headers of every template, in order): before
+ * the first template block of the file that comes later, else at the end. A block whose header the file holds is skipped; a
+ * pattern that the file holds is left out, and a block with no new pattern is skipped. Returns the headers of the blocks that
+ * were added. Does not stage and does not commit.
+ */
+export const appendIgnoreBlocks = (repoId: string, target: IgnoreTarget, blocks: IgnoreBlock[], order: readonly string[]) =>
+  invoke<string[]>("append_ignore_blocks", { repoId, target, blocks, order });
 /** `signOff` adds a `Signed-off-by` trailer (`--signoff`); the backend does not add it twice. */
 export const commit = (repoId: string, message: string, amend = false, signOff = false) =>
   invoke<OpResult>("commit", { repoId, message, amend, signOff });
