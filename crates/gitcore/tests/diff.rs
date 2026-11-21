@@ -319,3 +319,23 @@ fn file_content_and_last_commit_message() {
         diff::MAX_CONTENT_BYTES
     );
 }
+
+#[test]
+fn both_sides_of_a_staged_file_deleted_from_disk_load() {
+    let r = TestRepo::new();
+    let g = git();
+    r.commit_file("seed", "s\n", "init");
+    r.write("new.txt", "one\ntwo\n");
+    r.sh(&["add", "new.txt"]);
+    std::fs::remove_file(r.path().join("new.txt")).unwrap();
+
+    // staged: the added file, read from the index
+    let staged = diff::file_diff(&g, &r.info, &DiffSpec::Staged, "new.txt", None, 3).unwrap();
+    assert_eq!(staged.hunks.len(), 1);
+    assert_eq!(staged.hunks[0].new_lines, 2);
+    // unstaged: its deletion from the worktree
+    let unstaged = diff::file_diff(&g, &r.info, &DiffSpec::Unstaged, "new.txt", None, 3).unwrap();
+    assert_eq!(unstaged.hunks.len(), 1);
+    assert_eq!(unstaged.hunks[0].old_lines, 2);
+    assert_eq!(unstaged.hunks[0].new_lines, 0);
+}

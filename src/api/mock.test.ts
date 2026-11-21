@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { mockInvoke, mockListen } from "./mock";
-import type { CommitDetails, CommitRow, ConsoleEntry, FileDiff, LogSessionInfo, OpResult, RepoSummary, StashUntracked, Workspace, WorkingTree } from "./types";
+import { mockInvoke, mockListen, mockWorkingTree } from "./mock";
+import type { CommitDetails, CommitRow, ConsoleEntry, FileChange, FileDiff, LogSessionInfo, OpResult, RepoSummary, StashUntracked, Workspace, WorkingTree } from "./types";
 
 const call = <T>(cmd: string, args?: Record<string, unknown>) => mockInvoke(cmd, args) as Promise<T>;
 
@@ -101,6 +101,85 @@ describe("mock backend", () => {
     const info = await call<LogSessionInfo>("log_open", { query: { repoIds: [repoId], refs: [] } });
     const [top] = await call<CommitRow[]>("log_rows", { sessionId: info.sessionId, start: 0, count: 1 });
     expect(top.subject).toBe("Add checkout tests");
+  });
+
+  describe("unstage mirrors git reset -q (index only, tolerant)", () => {
+    const fc = (path: string, status: FileChange["status"], oldPath: string | null = null): FileChange => ({ path, oldPath, status, additions: 1, deletions: 0, binary: false });
+    const tree = (repoId: string) => call<WorkingTree>("working_tree", { repoId });
+
+    it("a staged file deleted from disk (added + deleted) leaves the list", async () => {
+      const { ids } = await setup();
+      const repoId = ids[4];
+      const wt = mockWorkingTree(repoId);
+      wt.staged.push(fc("tmp/ad.txt", "added"));
+      wt.unstaged.push(fc("tmp/ad.txt", "deleted"));
+      await call("unstage", { repoId, paths: ["tmp/ad.txt"] });
+      const after = await tree(repoId);
+      expect([...after.staged, ...after.unstaged, ...after.conflicted].some((f) => f.path === "tmp/ad.txt")).toBe(false);
+    });
+
+    it("a staged edit of a file deleted from disk becomes one unstaged deletion", async () => {
+      const { ids } = await setup();
+      const repoId = ids[4];
+      const wt = mockWorkingTree(repoId);
+      wt.staged.push(fc("tmp/md.txt", "modified"));
+      wt.unstaged.push(fc("tmp/md.txt", "deleted"));
+      await call("unstage", { repoId, paths: ["tmp/md.txt"] });
+      const after = await tree(repoId);
+      expect(after.staged.some((f) => f.path === "tmp/md.txt")).toBe(false);
+      expect(after.unstaged.filter((f) => f.path === "tmp/md.txt").map((f) => f.status)).toEqual(["deleted"]);
+    });
+
+    it("a staged new file that is still on disk becomes untracked", async () => {
+      const { ids } = await setup();
+      const repoId = ids[4];
+      mockWorkingTree(repoId).staged.push(fc("tmp/new.txt", "added"));
+      await call("unstage", { repoId, paths: ["tmp/new.txt"] });
+      const after = await tree(repoId);
+      expect(after.unstaged.filter((f) => f.path === "tmp/new.txt").map((f) => f.status)).toEqual(["untracked"]);
+    });
+
+    it("a staged rename gives an untracked new path and a deleted old path", async () => {
+      const { ids } = await setup();
+      const repoId = ids[4];
+      mockWorkingTree(repoId).staged.push(fc("tmp/b.txt", "renamed", "tmp/a.txt"));
+      await call("unstage", { repoId, paths: ["tmp/b.txt", "tmp/a.txt"] });
+      const after = await tree(repoId);
+      const by = (p: string) => after.unstaged.filter((f) => f.path === p).map((f) => f.status);
+      expect(by("tmp/b.txt")).toEqual(["untracked"]);
+      expect(by("tmp/a.txt")).toEqual(["deleted"]);
+      expect(after.unstaged.find((f) => f.path === "tmp/b.txt")?.oldPath).toBeNull();
+    });
+
+    it("logs `git reset -q`, the command the backend runs", async () => {
+      const { ids } = await setup();
+      const repoId = ids[4];
+      const logged: string[][] = [];
+      const off = mockListen("git-console", (p) => logged.push((p as ConsoleEntry).args));
+      await call("unstage", { repoId, paths: ["tmp/whatever.txt"] });
+      off();
+      expect(logged.some((a) => a[0] === "reset" && a.includes("-q"))).toBe(true);
+      expect(logged.some((a) => a[0] === "restore")).toBe(false);
+    });
+
+    it("a path that is not staged (a stale row) is skipped without an error", async () => {
+      const { ids } = await setup();
+      const repoId = ids[4];
+      const before = await tree(repoId);
+      await expect(call("unstage", { repoId, paths: ["tmp/never-staged.txt"] })).resolves.toBeUndefined();
+      expect(await tree(repoId)).toEqual(before);
+    });
+
+    it("staging the deletion of a staged added file leaves nothing", async () => {
+      const { ids } = await setup();
+      const repoId = ids[4];
+      const wt = mockWorkingTree(repoId);
+      wt.staged.push(fc("tmp/ad2.txt", "added"));
+      wt.unstaged.push(fc("tmp/ad2.txt", "deleted"));
+      await call("stage", { repoId, paths: ["tmp/ad2.txt"] });
+      const after = await tree(repoId);
+      expect([...after.staged, ...after.unstaged].some((f) => f.path === "tmp/ad2.txt")).toBe(false);
+    });
   });
 
   it("creates and checks out branches and rejects duplicates with an ApiError shape", async () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  MAX_COUNTED_FILES, addedTitle, countMatches, defaultKind, escapeSegment, extensionOf, fileCountLabel, parseLines, patternOptions, splitKnown, thesePatterns,
-  trackedNote,
+  MAX_COUNTED_FILES, TARGET_LABEL, TARGET_SCOPE, addedBody, addedTitle, countMatches, defaultKind, escapeSegment, extensionOf, fileCountLabel, isAnchored,
+  namesAPath, parseLines, patternOptions, splitKnown, targetName, theseNamePatterns, thesePatterns, trackedNote,
 } from "./ignoreRules";
 
 const lines = (path: string, isDir = false) => Object.fromEntries(patternOptions({ path, isDir }).map((o) => [o.kind, o.lines[0]]));
@@ -160,5 +160,45 @@ describe("texts", () => {
   it("words the toast title", () => {
     expect(addedTitle(["/a.ts"], ".gitignore")).toBe("Added /a.ts to .gitignore");
     expect(addedTitle(["/a.ts", "/b.ts"], ".gitignore")).toBe("Added 2 patterns to .gitignore");
+  });
+});
+
+describe("the global ignore file", () => {
+  it("knows which options name a path of the repository", () => {
+    expect(["file", "folder", "these"].every((k) => isAnchored(k as never))).toBe(true);
+    expect(["name", "ext", "folderName", "theseNames", "custom"].some((k) => isAnchored(k as never))).toBe(false);
+    // Every option that stays on the global file is a name or an extension pattern.
+    for (const item of [{ path: "src/gen/api.ts", isDir: false }, { path: "build/out", isDir: true }]) {
+      for (const o of patternOptions(item)) if (!isAnchored(o.kind)) expect(o.lines.some(namesAPath), o.kind).toBe(false);
+    }
+  });
+
+  it("turns several items into names", () => {
+    expect(theseNamePatterns([{ path: "src/a.ts", isDir: false }, { path: "lib/a.ts", isDir: false }, { path: "build/", isDir: true }, { path: "x/#tmp", isDir: false }])).toEqual([
+      "a.ts",
+      "build/",
+      "\\#tmp",
+    ]);
+  });
+
+  it("sees a path in a line", () => {
+    expect(namesAPath("/a.ts")).toBe(true);
+    expect(namesAPath("src/a.ts")).toBe(true);
+    expect(namesAPath("!src/a.ts")).toBe(true);
+    expect(namesAPath("build/")).toBe(false);
+    expect(namesAPath("*.log")).toBe(false);
+  });
+
+  it("words the three targets honestly", () => {
+    expect(targetName("gitignore")).toBe(".gitignore");
+    expect(targetName("exclude")).toBe(".git/info/exclude");
+    expect(targetName("global")).toBe("the global ignore file");
+    expect(TARGET_LABEL.exclude).toContain("not shared");
+    expect(TARGET_LABEL.global).toContain("All repositories");
+    expect(TARGET_SCOPE.exclude).not.toMatch(/every repository/);
+    expect(TARGET_SCOPE.global).toContain("every repository");
+    expect(addedBody("gitignore", "web", "web/.gitignore")).toBe("web/.gitignore. Commit it when you are ready.");
+    expect(addedBody("exclude", "web", ".git/info/exclude")).toBe(".git/info/exclude of web. The rule stays on this computer.");
+    expect(addedBody("global", "web", "/home/u/.config/git/ignore")).toBe("/home/u/.config/git/ignore. It applies to every repository on this computer.");
   });
 });

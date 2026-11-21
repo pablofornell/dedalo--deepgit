@@ -9,7 +9,7 @@ import { dateExample, formatDate } from "../../../state/dates";
 import { formatKeys } from "../../../state/keymap";
 import { ALERT_EXPIRY_CHOICES, type DateFormat, type ThemePref, resetSettings, setSetting, settings } from "../../../state/settings";
 import { detailsWidthsAreDefault, resetDetailsWidths } from "../../shell/detailsWidth";
-import { DEFAULT_CHANGES_DETAILS_RATIO, DEFAULT_DETAILS_RATIO } from "../../shell/widths";
+import { DEFAULT_DETAILS_RATIO } from "../../shell/widths";
 import { registerSettingsSection } from "../registry";
 import { type Choice, ChoiceList, Row, Section, SizeControl } from "../widgets";
 
@@ -105,7 +105,7 @@ function AppearanceSection(): JSX.Element {
       <Section title="Layout">
         <Row
           label="Right column width"
-          hint={`Log and Local changes keep their own width. Reset gives Log ${percent(DEFAULT_DETAILS_RATIO)} and Local changes ${percent(DEFAULT_CHANGES_DETAILS_RATIO)} of the row.`}
+          hint={`Log keeps its own width. Local changes always opens with the column as wide as the window allows; a width you drag there lasts until you leave the tab. Reset gives Log ${percent(DEFAULT_DETAILS_RATIO)} and Local changes the widest column.`}
         >
           <Button size="small" variant="ghost" icon="undo" disabled={detailsWidthsAreDefault()} onClick={resetDetailsWidths} title="Back to the default widths">
             Reset

@@ -214,8 +214,11 @@ fn covers(path: &str, file: &str) -> bool {
     p.is_empty() || p == "." || file == p || file.starts_with(&format!("{p}/"))
 }
 
-/// `git restore --staged -- paths` (`git reset -q HEAD -- paths` when there is no HEAD yet). The
-/// old path of a staged rename is unstaged together with its new path.
+/// `git reset -q -- paths` (`git rm --cached` when there is no HEAD yet): the index only, never
+/// the worktree. Unlike `git restore --staged` it does not fail on a path that is in neither the
+/// index nor HEAD, which is what a row left over from a change made outside the app is (a file
+/// staged and deleted from disk, then unstaged elsewhere). The old path of a staged rename is
+/// unstaged together with its new path.
 pub fn unstage(git: &Git, repo: &RepoInfo, paths: &[String]) -> Result<(), GitError> {
     if paths.is_empty() {
         return Ok(());
@@ -226,7 +229,7 @@ pub fn unstage(git: &Git, repo: &RepoInfo, paths: &[String]) -> Result<(), GitEr
         all.extend(rename_sources(git, repo, paths)?);
     }
     let head: &[&str] = if has_head {
-        &["restore", "--staged"]
+        &["reset", "-q"]
     } else {
         &["rm", "--cached", "-r", "-q", "--ignore-unmatch"]
     };

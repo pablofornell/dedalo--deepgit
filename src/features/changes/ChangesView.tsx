@@ -7,13 +7,13 @@ import { For, type JSX, Show, createEffect, createMemo, createResource, createSi
 import * as api from "../../api/tauri";
 import type { RepoStateKind, WorkingTree } from "../../api/types";
 import {
-  Button, HeaderSlot, Icon, IconButton, SegmentedControl, Splitter, copyText, joinRepoPath, loadSplitSize, openContextMenu, plural,
+  Button, HeaderSlot, Icon, SegmentedControl, Splitter, copyText, joinRepoPath, loadSplitSize, openContextMenu, plural,
   type MenuItem, type VirtualListApi,
 } from "../../components/ui";
 import * as actions from "../../state/actions";
 import { formatDate, fullDate } from "../../state/dates";
 import { confirmAction } from "../../state/dialogs";
-import { notifyRepoChanged, repoVersion } from "../../state/events";
+import { repoVersion, workingTreeVersion } from "../../state/events";
 import { ignoreMenuItems, type IgnoreRef } from "../../state/ignoreMenu";
 import { register } from "../../state/keymap";
 import { loadPersisted, savePersisted } from "../../state/persist";
@@ -26,6 +26,7 @@ import {
 } from "./model";
 import { cssPx, isCompact, stagedHeight } from "./layout";
 import { combineSelection, type MarqueeMode } from "./marquee";
+import { createRetrier } from "./loadRetry";
 import { discardItems, discardable, stageItems, toggleStage, unstageItems } from "./ops";
 import { PaneList, type MarqueeHandlers } from "./PaneList";
 import { Action, DirRowView, FileRowView, RepoRowView, SectionRowView, type DirRow, type FileRow, type RepoRow, type RowCtl, type SectionRow } from "./Rows";
@@ -62,8 +63,11 @@ export function ChangesView(): JSX.Element {
   const [trees, setTrees] = createSignal<Record<string, WorkingTree>>({});
   const [errors, setErrors] = createSignal<Record<string, string>>({});
   const seq = new Map<string, number>();
+  /** A failed read is tried again a few times by itself (a git lock held for a moment, a repo being rewritten): the banner clears on the first good read. */
+  const retrier = createRetrier();
+  onCleanup(retrier.cancelAll);
 
-  async function load(repoId: string): Promise<void> {
+  async function load(repoId: string, attempt = 0): Promise<void> {
     const n = (seq.get(repoId) ?? 0) + 1;
     seq.set(repoId, n);
     try {
@@ -74,6 +78,8 @@ export function ChangesView(): JSX.Element {
     } catch (e) {
       if (seq.get(repoId) !== n) return;
       setErrors((x) => ({ ...x, [repoId]: e instanceof Error ? e.message : (e as { message?: string })?.message ?? String(e) }));
+      // a newer read (an event, the Retry button) takes over
+      retrier.schedule(attempt, () => seq.get(repoId) === n && active(), (next) => void load(repoId, next));
     }
   }
 
@@ -83,6 +89,7 @@ export function ChangesView(): JSX.Element {
       createEffect(() => {
         if (!active()) return;
         repoVersion(id);
+        workingTreeVersion(id);
         void load(id);
       });
       return id;
@@ -668,7 +675,6 @@ export function ChangesView(): JSX.Element {
               { value: "flat", icon: "list", title: "Flat list of files" },
             ]}
           />
-          <IconButton icon="refresh" label="Refresh changes" onClick={() => scope().forEach((r) => notifyRepoChanged(r.id))} />
         </Show>
       </HeaderSlot>
 

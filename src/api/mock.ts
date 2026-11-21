@@ -16,13 +16,14 @@ import {
 import { buildFileDiff, fileText, toFileChange } from "./mockDiff";
 import { isImagePath } from "./imageFiles";
 import { mockFileImages } from "./mockImages";
+import { appendIgnoreBlocks, blockError } from "./ignoreBlocks";
 import { CHANGED_ON_DISK, appendIgnoreLines, fileKey, filePathError, ignorePatternError, isFolder, listFiles, readText, versionOf } from "./mockFiles";
 import { uniqueProjectName, validateProjectName } from "./projectName";
 import { validateRefName } from "../features/dialogs/refname";
 import { acceptedTextOf, entryOf, genericConflicts, currentOids, hasStage, isTextConflict, markerLabels, sideStages, versionsOf, worktreeTextOf, type MockConflict } from "./mockConflicts";
 import type {
   CloneOpts, CloneProgress, CloneResult, CloneTarget, CommitDetails, CommitRow, ConflictEntry, ConflictLabels, ConflictVersions, ConsoleEntry, DiffSpec,
-  FileChange, FileDiff, FileImages, GraphRow, IgnoreFile, IgnoreTarget, LocalBranch, LogQuery, LogSessionInfo, MergeMode, MergeOpts, OpResult, Project, RefLabel, Refs, RepoChanged, RepoInfo,
+  FileChange, FileDiff, FileImages, GraphRow, IgnoreBlock, IgnoreFile, IgnoreTarget, LocalBranch, LogQuery, LogSessionInfo, MergeMode, MergeOpts, OpResult, Project, RefLabel, Refs, RepoChanged, RepoInfo,
   RepoSummary, ResetMode, Workspace, WorkingTree,
 } from "./types";
 import { ERR_BARE_REPOSITORY, ERR_DEEP_REPOSITORY, ERR_INSIDE_GIT_DIR, ERR_NO_REPOSITORY, type InitInfo } from "./types";
@@ -179,6 +180,11 @@ function repoOf(id: unknown): MockRepo {
     repos.set(key, r);
   }
   return r;
+}
+
+/** The live working tree lists of a repo, for tests that need a state no command can make (a staged file deleted from disk). */
+export function mockWorkingTree(repoId: string): MockRepo["wt"] {
+  return repoOf(repoId).wt;
 }
 
 // ---------------------------------------------------------------- graph helpers
@@ -890,7 +896,8 @@ const handlers: Record<string, Handler> = {
     const repo = repoOf(a.repoId);
     const target = ignoreTargetArg(a, "read_ignore_file");
     if (target === "exclude") c.git(repo, ["rev-parse", "--git-path", "info/exclude"]);
-    return { content: ignoreText(repo, target), ignoreCase: false } satisfies IgnoreFile;
+    if (target === "global") c.git(repo, ["config", "--global", "--path", "--get", "core.excludesFile"]);
+    return { content: ignoreText(repo, target), path: ignorePath(repo, target), ignoreCase: false, localExcludesFile: null, canInsert: true } satisfies IgnoreFile;
   },
   last_commit_message: (a, c) => {
     const repo = repoOf(a.repoId);
@@ -909,6 +916,12 @@ const handlers: Record<string, Handler> = {
         if (i < 0) continue;
         const [f] = list.splice(i, 1);
         repo.conflicts.delete(p);
+        // Staging the deletion of a file that is staged as added leaves nothing: no index entry, no file.
+        const was = repo.wt.staged.findIndex((s) => s.path === p);
+        if (f.status === "deleted" && was >= 0 && repo.wt.staged[was].status === "added") {
+          repo.wt.staged.splice(was, 1);
+          continue;
+        }
         const status = f.status === "untracked" ? "added" : f.status === "conflicted" ? "modified" : f.status;
         const prev = repo.wt.staged.findIndex((s) => s.path === p);
         const next = f.status === "conflicted" ? toFileChange(p, null, "modified", "wt-staged-" + p) : { ...f, status };
@@ -922,13 +935,23 @@ const handlers: Record<string, Handler> = {
   unstage: (a, c) => {
     const repo = repoOf(a.repoId);
     const paths = strs(a.paths);
+    // Like the backend (`git reset -q -- paths`): the index only, and a path that is not staged (a stale row) is skipped, never an error.
     for (const p of paths) {
       const i = repo.wt.staged.findIndex((f) => f.path === p);
       if (i < 0) continue;
       const [f] = repo.wt.staged.splice(i, 1);
-      repo.wt.unstaged.push({ ...f, status: f.status === "added" ? "untracked" : f.status });
+      const un = repo.wt.unstaged;
+      const same = un.findIndex((u) => u.path === p);
+      if (f.status === "added" || f.status === "renamed") {
+        // An added file that was deleted from disk leaves no index entry and no file: the path goes. Otherwise it is untracked.
+        if (same >= 0 && un[same].status === "deleted") un.splice(same, 1);
+        else if (same >= 0) un[same] = { ...un[same], status: "untracked" };
+        else un.push({ ...f, status: "untracked", oldPath: null });
+        // The old side of a rename is a deletion in the worktree.
+        if (f.status === "renamed" && f.oldPath && !un.some((u) => u.path === f.oldPath)) un.push(toFileChange(f.oldPath, null, "deleted", "wt-unstaged-" + f.oldPath));
+      } else if (same < 0) un.push(f);
     }
-    c.git(repo, ["restore", "--staged", "--", ...paths]);
+    c.git(repo, ["reset", "-q", "--", ...paths]);
     emitChanged(repo);
   },
   discard: (a, c) => {
@@ -964,24 +987,28 @@ const handlers: Record<string, Handler> = {
       if (refused !== null) fail(refused);
     }
     if (target === "exclude") c.git(repo, ["rev-parse", "--git-path", "info/exclude"]);
+    if (target === "global") c.git(repo, ["config", "--global", "--path", "--get", "core.excludesFile"]);
     const { text, added } = appendIgnoreLines(ignoreText(repo, target), patterns);
     if (added.length === 0) return added;
-    if (target === "gitignore") {
-      const had = repo.worktree.has(".gitignore");
-      repo.worktree.set(".gitignore", text);
-      const listed = [...repo.wt.staged, ...repo.wt.unstaged, ...repo.wt.conflicted].some((f) => f.path === ".gitignore");
-      if (!listed) repo.wt.unstaged.push(toFileChange(".gitignore", null, had ? "modified" : "untracked", "wt-ignore-" + repo.info.id));
-    } else {
-      excludeTexts.set(repo, text);
+    storeIgnoreText(repo, target, text);
+    return added;
+  },
+  append_ignore_blocks: (a, c) => {
+    const repo = repoOf(a.repoId);
+    const target = ignoreTargetArg(a, "append_ignore_blocks");
+    const raw = a.blocks;
+    if (raw === undefined) fail("invalid args `blocks` for command `append_ignore_blocks`: command append_ignore_blocks missing required key blocks");
+    const blocks = raw as IgnoreBlock[];
+    const order = stringList(a, "order", "append_ignore_blocks");
+    for (const b of blocks) {
+      const refused = blockError(b);
+      if (refused !== null) fail(refused);
     }
-    // Git hides an untracked file that a new rule matches. A tracked file stays in the list.
-    const rules = ignore({ ignorecase: false }).add(ignoreText(repo, "gitignore")).add(ignoreText(repo, "exclude"));
-    repo.wt.unstaged = repo.wt.unstaged.filter((f) => {
-      if (f.status !== "untracked" || !rules.ignores(f.path)) return true;
-      repo.ignored.add(f.path);
-      return false;
-    });
-    emitChanged(repo);
+    if (target === "exclude") c.git(repo, ["rev-parse", "--git-path", "info/exclude"]);
+    if (target === "global") c.git(repo, ["config", "--global", "--path", "--get", "core.excludesFile"]);
+    const { text, added } = appendIgnoreBlocks(ignoreText(repo, target), blocks, order);
+    if (added.length === 0) return added;
+    storeIgnoreText(repo, target, text);
     return added;
   },
   stage_hunk: (a, c) => {
@@ -1644,15 +1671,60 @@ function stashRestore(a: Args, c: Ctx, drop: boolean): OpResult {
 /** The text of `.git/info/exclude` of each mock repo. A repo that is not here has an empty file. */
 const excludeTexts = new WeakMap<MockRepo, string>();
 
+/** The text of the global ignore file. It is one file for every mock repo, like on a real computer. */
+let globalIgnoreText = "";
+
 function ignoreText(repo: MockRepo, target: IgnoreTarget): string {
+  if (target === "global") return globalIgnoreText;
   return target === "gitignore" ? (repo.worktree.get(".gitignore") ?? "") : (excludeTexts.get(repo) ?? "");
+}
+
+/** The path that `read_ignore_file` reports. */
+function ignorePath(repo: MockRepo, target: IgnoreTarget): string {
+  if (target === "global") return "/home/dev/.config/git/ignore";
+  return target === "gitignore" ? `${repo.info.path}/.gitignore` : `${repo.info.path}/.git/info/exclude`;
+}
+
+/**
+ * Keeps the new text of an ignore file, and hides the untracked files that the rules match (git does). A tracked file stays in the
+ * list. The global file is read by every repo, so each one is updated and told.
+ */
+function storeIgnoreText(repo: MockRepo, target: IgnoreTarget, text: string): void {
+  if (target === "gitignore") {
+    const had = repo.worktree.has(".gitignore");
+    repo.worktree.set(".gitignore", text);
+    const listed = [...repo.wt.staged, ...repo.wt.unstaged, ...repo.wt.conflicted].some((f) => f.path === ".gitignore");
+    if (!listed) repo.wt.unstaged.push(toFileChange(".gitignore", null, had ? "modified" : "untracked", "wt-ignore-" + repo.info.id));
+  } else if (target === "exclude") {
+    excludeTexts.set(repo, text);
+  } else {
+    globalIgnoreText = text;
+  }
+  for (const r of target === "global" ? [repo, ...[...repos.values()].filter((x) => x !== repo)] : [repo]) {
+    hideIgnored(r);
+    emitChanged(r);
+  }
+}
+
+/** Moves the untracked files that the rules of `repo` match into its ignored set. */
+function hideIgnored(repo: MockRepo): void {
+  // Git reads the global file first, then `.git/info/exclude`, then `.gitignore`: a later line wins (`!name` in .gitignore keeps a file
+  // that the global file ignores), so the lowest source is added first.
+  const rules = ignore({ ignorecase: false }).add(globalIgnoreText).add(ignoreText(repo, "exclude")).add(ignoreText(repo, "gitignore"));
+  repo.wt.unstaged = repo.wt.unstaged.filter((f) => {
+    if (f.status !== "untracked" || !rules.ignores(f.path)) return true;
+    repo.ignored.add(f.path);
+    return false;
+  });
 }
 
 /** The `target` argument of the ignore commands, refused like serde does when it is wrong. */
 function ignoreTargetArg(a: Args, cmd: string): IgnoreTarget {
   const v = a.target;
   if (v === undefined) fail(`invalid args \`target\` for command \`${cmd}\`: command ${cmd} missing required key target`);
-  if (v !== "gitignore" && v !== "exclude") fail(`invalid args \`target\` for command \`${cmd}\`: unknown variant \`${String(v)}\`, expected \`gitignore\` or \`exclude\``);
+  if (v !== "gitignore" && v !== "exclude" && v !== "global") {
+    fail(`invalid args \`target\` for command \`${cmd}\`: unknown variant \`${String(v)}\`, expected one of \`gitignore\`, \`exclude\`, \`global\``);
+  }
   return v;
 }
 

@@ -1,19 +1,21 @@
 /**
  * Add to .gitignore (docs/design/ITERATION-3.md section 11): pattern options with a match count, the target file
- * (`.gitignore` or `.git/info/exclude`), a preview of the line, and a note for tracked files. The dialog writes the lines and
- * shows the toast. It does not stage, commit or untrack anything.
+ * (`.gitignore`, `.git/info/exclude` or the global ignore file of git), a preview of the line, and a note for tracked files. The
+ * dialog writes the lines and shows the toast. It does not stage, commit or untrack anything. The global file applies to every
+ * repository, so the options that name a path of this one (`/src/a.ts`) are off there. "Templates…" opens the templates dialog.
  */
-import { type JSX, For, Show, createEffect, createMemo, createResource, createSignal } from "solid-js";
+import { type JSX, For, Show, createEffect, createMemo, createResource, createSignal, on } from "solid-js";
 import * as api from "../../api/tauri";
 import type { IgnoreTarget } from "../../api/types";
-import { Dialog, type DialogComponentProps, Select, TextField, toast } from "../../components/ui";
+import { Button, Dialog, type DialogComponentProps, TextField, toast } from "../../components/ui";
 import type { IgnoreProps, IgnoreResult } from "../../state/dialogs";
-import { editFile } from "../../state/actions";
+import { editFile, openIgnoreTemplates } from "../../state/actions";
 import { repoById } from "../../state/workspace";
+import { IgnoreTargetField } from "./IgnoreTargetField";
 import { Field, Note, RadioGroup, TextArea, type RadioOption } from "./parts";
 import {
-  MAX_COUNTED_FILES, addedTitle, countMatches, defaultKind, fileCountLabel, parseLines, patternOptions, splitKnown, thesePatterns, trackedNote,
-  type MatchCount, type OptionKind, type PatternOption,
+  MAX_COUNTED_FILES, addedBody, addedTitle, countMatches, defaultKind, fileCountLabel, isAnchored, namesAPath, parseLines, patternOptions, splitKnown,
+  targetName, theseNamePatterns, thesePatterns, trackedNote, type MatchCount, type OptionKind, type PatternOption,
 } from "./ignoreRules";
 
 /** The files of a repo and the ones that git tracks. Null when the list is not there. */
@@ -33,8 +35,6 @@ async function loadFiles(repoId: string): Promise<FileData | null> {
   }
 }
 
-const TARGET_NAME: Record<IgnoreTarget, string> = { gitignore: ".gitignore", exclude: ".git/info/exclude" };
-
 /** The description of an option: its lines, cut after a few when there are many. */
 function describe(lines: readonly string[]): string {
   return lines.length <= 3 ? lines.join(", ") : `${lines.slice(0, 3).join(", ")} and ${lines.length - 3} more`;
@@ -44,7 +44,12 @@ export function IgnoreDialog(props: IgnoreProps & DialogComponentProps<IgnoreRes
   const repoName = repoById(props.repoId)?.name ?? props.repoId;
   const items = props.items;
   const several = items.length > 1;
-  const ready: PatternOption[] = several ? [{ kind: "these", label: "These files", lines: thesePatterns(items) }] : patternOptions(items[0]);
+  const ready: PatternOption[] = several
+    ? [
+        { kind: "these", label: "These files", lines: thesePatterns(items) },
+        { kind: "theseNames", label: "These names anywhere", lines: theseNamePatterns(items) },
+      ]
+    : patternOptions(items[0]);
   const optionOf = (k: OptionKind): PatternOption | undefined => ready.find((o) => o.kind === k);
 
   const firstKind: OptionKind = several ? "these" : defaultKind(items[0]);
@@ -54,8 +59,24 @@ export function IgnoreDialog(props: IgnoreProps & DialogComponentProps<IgnoreRes
   const [busy, setBusy] = createSignal(false);
   const [failure, setFailure] = createSignal<string | null>(null);
 
+  // The global file applies to every repository: the options that start with `/` are off there.
+  const blocked = (k: OptionKind): boolean => target() === "global" && isAnchored(k);
   const radios: RadioOption<OptionKind>[] = [
-    ...ready.map((o): RadioOption<OptionKind> => ({ value: o.kind, label: o.label, description: describe(o.lines), mono: true })),
+    ...ready.map(
+      (o): RadioOption<OptionKind> => ({
+        value: o.kind,
+        label: o.label,
+        get description() {
+          return blocked(o.kind) ? "Names a path of this repository. Not for all repositories." : describe(o.lines);
+        },
+        get mono() {
+          return !blocked(o.kind);
+        },
+        get disabled() {
+          return blocked(o.kind);
+        },
+      }),
+    ),
     { value: "custom", label: "Custom" },
   ];
   const pick = (k: OptionKind): void => {
@@ -97,11 +118,37 @@ export function IgnoreDialog(props: IgnoreProps & DialogComponentProps<IgnoreRes
   const tracked = () => trackedNote(current()?.tracked ?? 0);
 
   // ---- target file
-  const targetLabel = (t: IgnoreTarget): string => (t === "gitignore" ? `${repoName}/.gitignore` : ".git/info/exclude");
   const [existing] = createResource(target, (t) => api.readIgnoreFile(props.repoId, t));
   createEffect(() => {
     if (existing.state === "ready") setIgnoreCase(existing()?.ignoreCase ?? false);
   });
+  const filePath = (): string | null => (existing.state === "ready" ? (existing()?.path ?? null) : null);
+  const targetLabel = (t: IgnoreTarget): string => (t === "gitignore" ? `${repoName}/.gitignore` : t === "exclude" ? ".git/info/exclude" : (filePath() ?? targetName(t)));
+
+  // Switching to the global file leaves an option that names a path: the first one that does not. Switching back brings it back.
+  const fallbackKind = (): OptionKind => ready.find((o) => !isAnchored(o.kind))?.kind ?? "custom";
+  let before: OptionKind | null = null;
+  createEffect(
+    on(
+      target,
+      (t) => {
+        if (t === "global" && isAnchored(kind())) {
+          before = kind();
+          pick(fallbackKind());
+        } else if (t !== "global" && before !== null) {
+          if (kind() === fallbackKind()) pick(before);
+          before = null;
+        }
+      },
+      { defer: true },
+    ),
+  );
+  /** The repo sets its own `core.excludesFile`: git does not read the global file here. */
+  const localOverride = (): string | null => (target() === "global" && existing.state === "ready" ? (existing()?.localExcludesFile ?? null) : null);
+  const pathNote = (): string | null =>
+    target() === "global" && kind() === "custom" && lines().some(namesAPath)
+      ? "A path in the global file starts at the root of each repository, so it matches in every repository that has it."
+      : null;
   const existingText = (): string | null => (existing.state === "ready" ? (existing()?.content ?? "") : null);
   const readError = (): string | null => (existing.state === "errored" ? ((existing.error as { message?: string })?.message ?? String(existing.error)) : null);
   const split = createMemo(() => {
@@ -124,14 +171,14 @@ export function IgnoreDialog(props: IgnoreProps & DialogComponentProps<IgnoreRes
     const t = target();
     try {
       const added = await api.appendIgnoreRules(props.repoId, t, lines());
-      const name = TARGET_NAME[t];
+      const name = targetName(t);
       if (added.length === 0) {
         toast({ kind: "info", title: `Nothing new for ${name}`, body: `${targetLabel(t)} has these patterns already.` });
       } else {
         toast({
           kind: "success",
           title: addedTitle(added, name),
-          body: t === "gitignore" ? `${targetLabel(t)}. Commit it when you are ready.` : `${targetLabel(t)} of ${repoName}. The rule stays on this computer.`,
+          body: addedBody(t, repoName, targetLabel(t)),
           actions: t === "gitignore" ? [{ label: "Open .gitignore", onClick: () => void editFile(props.repoId, ".gitignore") }] : undefined,
         });
       }
@@ -144,12 +191,23 @@ export function IgnoreDialog(props: IgnoreProps & DialogComponentProps<IgnoreRes
 
   const where = (): string => (several ? `${items.length} files` : items[0].path.replace(/^\/+|\/+$/g, ""));
 
+  const openTemplates = (): void => {
+    const t = target();
+    props.close();
+    void openIgnoreTemplates(props.repoId, t);
+  };
+
   return (
     <Dialog
-      title="Add to .gitignore"
+      title={`Add to ${targetName(target())}`}
       width="wide"
       onClose={() => props.close()}
-      primary={{ label: "Add to .gitignore", disabled: !canSubmit(), onClick: () => void submit() }}
+      primary={{ label: "Add", disabled: !canSubmit(), onClick: () => void submit() }}
+      footerLeft={
+        <Button variant="ghost" icon="list" onClick={openTemplates} title="Add the usual rules of a language, a build tool, an editor or a system">
+          Templates…
+        </Button>
+      }
     >
       <div class="dg-dialogs-text dg-selectable">
         <strong>{repoName}</strong> <span class="dg-dialogs-ign-path">›</span> <span class="dg-dialogs-mono">{where()}</span>
@@ -165,18 +223,7 @@ export function IgnoreDialog(props: IgnoreProps & DialogComponentProps<IgnoreRes
           </Show>
         </Show>
       </Field>
-      <Field label="Add to">
-        <Select
-          class="dg-dialogs-select"
-          ariaLabel="Add to"
-          value={target()}
-          onChange={setTarget}
-          options={[
-            { value: "gitignore", label: `${targetLabel("gitignore")} (repository root)` },
-            { value: "exclude", label: `${targetLabel("exclude")} (only on this computer)` },
-          ]}
-        />
-      </Field>
+      <IgnoreTargetField value={target()} onChange={setTarget} path={filePath()} />
       <Show when={lines().length > 0}>
         <div class="dg-dialogs-field">
           <span class="dg-dialogs-text">
@@ -187,6 +234,14 @@ export function IgnoreDialog(props: IgnoreProps & DialogComponentProps<IgnoreRes
           </div>
         </div>
       </Show>
+      <Show when={localOverride()}>
+        {(f) => (
+          <Note kind="warning">
+            This repository sets its own core.excludesFile ({f()}), so git does not read the global file here. The rule still applies to the other repositories.
+          </Note>
+        )}
+      </Show>
+      <Show when={pathNote()}>{(n) => <Note kind="info">{n()}</Note>}</Show>
       <Show when={knownNote()}>{(n) => <Note kind="info">{n()}</Note>}</Show>
       <Show when={tracked()}>{(n) => <Note kind="warning">{n()}</Note>}</Show>
       <Show when={readError()}>{(n) => <Note kind="error">{n()}</Note>}</Show>

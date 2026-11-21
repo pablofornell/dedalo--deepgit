@@ -5,15 +5,15 @@
  */
 import { type JSX, Match, Show, Switch, createEffect, createMemo, createSignal, on, onCleanup, onMount, untrack } from "solid-js";
 import type { CommitRow, LogQuery } from "../../api/types";
-import { Button, EmptyState, HeaderSlot, IconButton, VirtualList, type VirtualListApi, copyText, openContextMenu, plural, toast } from "../../components/ui";
+import { Button, EmptyState, VirtualList, type VirtualListApi, copyText, openContextMenu, plural, toast } from "../../components/ui";
 import { dateWidthSample } from "../../state/dateFormat";
 import { register } from "../../state/keymap";
-import { notifyRepoChanged, repoVersion } from "../../state/events";
+import { repoVersion } from "../../state/events";
 import { refsVersion } from "../../state/refs";
 import { loadPersisted, savePersisted } from "../../state/persist";
 import { jumpTarget, jumpToCommit, mainTab, selectedCommit, setChangesRepoId, setMainTab, setSelectedCommit } from "../../state/selection";
 import { setSetting, settings } from "../../state/settings";
-import { activeProject, focusedRepo, refreshSummaries, repoById, selectOnlyRepo, selectedRepoIds, selectedRepos, summary } from "../../state/workspace";
+import { activeProject, focusedRepo, repoById, selectOnlyRepo, selectedRepoIds, selectedRepos, summary } from "../../state/workspace";
 import { resetAuthors, mergeAuthors } from "./authors";
 import { OperationBanners, SkippedBanner } from "./Banner";
 import { DisplayMap, dateGroupLabel } from "./dateGroups";
@@ -549,12 +549,6 @@ export function LogView(): JSX.Element {
   }, { defer: true }));
   onCleanup(() => clearTimeout(refreshTimer));
 
-  const refresh = () => {
-    for (const id of selectedRepoIds()) notifyRepoChanged(id);
-    void refreshSummaries();
-    void reload(untrack(query), "refresh");
-  };
-
   // ---------------------------------------------------------------- rows
 
   const needle = () => parseTextFilter(text()).text;
@@ -709,12 +703,6 @@ export function LogView(): JSX.Element {
       attr:data-hide-hash={hiddenCols().hash ? "" : undefined}
       attr:data-hide-repo={hiddenCols().repo ? "" : undefined}
     >
-      <HeaderSlot name="main">
-        <Show when={mainTab() === "log"}>
-          <IconButton icon="refresh" label="Refresh" shortcut="Ctrl+R" onClick={refresh} />
-        </Show>
-      </HeaderSlot>
-
       <FilterBar inputRef={(el) => (searchInput = el)} />
       <SkippedBanner skipped={ctl.info()?.skipped ?? []} onRetry={() => void reload(untrack(query), "retry")} />
       <OperationBanners />

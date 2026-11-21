@@ -1,6 +1,7 @@
 //! The git runner: spawns `git`, applies the environment rules of PLAN.md section 3 and
 //! reports every call to an optional console sink.
 
+use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -118,6 +119,10 @@ pub struct Git {
     auth: Option<Arc<dyn AuthBroker>>,
     /// How network commands may ask when `auth` is set. Interactive unless changed.
     auth_mode: AuthMode,
+    /// The global ignore file to use instead of the one git is configured for (tests).
+    global_ignore: Option<PathBuf>,
+    /// Environment variables set on every git process, and read by `env_var` before the real environment (tests).
+    extra_env: Vec<(OsString, OsString)>,
 }
 
 /// Parses "git version 2.43.0" (or "... 2.39.3 (Apple Git-145)") into (major, minor).
@@ -149,6 +154,8 @@ impl Git {
             network_cap: NETWORK_CAP,
             auth: None,
             auth_mode: AuthMode::Interactive,
+            global_ignore: None,
+            extra_env: Vec::new(),
         }
     }
 
@@ -164,6 +171,34 @@ impl Git {
     pub fn with_network_cap(mut self, d: Duration) -> Self {
         self.network_cap = d;
         self
+    }
+
+    /// Uses `path` as the global ignore file, whatever `core.excludesFile` says. For tests: they must not touch
+    /// the global config of the person who runs them.
+    pub fn with_global_ignore_file(mut self, path: PathBuf) -> Self {
+        self.global_ignore = Some(path);
+        self
+    }
+
+    /// Sets an environment variable on every git process this runner starts (`HOME`, `XDG_CONFIG_HOME`, `GIT_CONFIG_NOSYSTEM`...).
+    /// For tests: they must not read or write the git config of the person who runs them.
+    pub fn with_env(mut self, key: impl Into<OsString>, value: impl Into<OsString>) -> Self {
+        let key = key.into();
+        self.extra_env.retain(|(k, _)| *k != key);
+        self.extra_env.push((key, value.into()));
+        self
+    }
+
+    /// The value of an environment variable for git: `with_env` first, then the real environment.
+    pub fn env_var(&self, key: &str) -> Option<OsString> {
+        let set = self.extra_env.iter().find(|(k, _)| k == key);
+        set.map(|(_, v)| v.clone())
+            .or_else(|| std::env::var_os(key))
+    }
+
+    /// The path set by `with_global_ignore_file`.
+    pub fn global_ignore_override(&self) -> Option<&Path> {
+        self.global_ignore.as_deref()
     }
 
     /// Lets network commands (fetch, pull, push) ask the user for credentials through `broker`.
@@ -330,6 +365,7 @@ impl Git {
             .env_remove("GIT_DIR")
             .env_remove("GIT_WORK_TREE")
             .env_remove("GIT_INDEX_FILE")
+            .envs(self.extra_env.iter().map(|(k, v)| (k, v)))
             .env("GIT_TERMINAL_PROMPT", "0")
             .env("LC_ALL", "C")
             .env("GIT_OPTIONAL_LOCKS", "0")
@@ -577,6 +613,7 @@ impl Git {
             .env_remove("GIT_DIR")
             .env_remove("GIT_WORK_TREE")
             .env_remove("GIT_INDEX_FILE")
+            .envs(self.extra_env.iter().map(|(k, v)| (k, v)))
             .env("GIT_TERMINAL_PROMPT", "0")
             .env("SSH_ASKPASS_REQUIRE", "never")
             .env("LC_ALL", "C")

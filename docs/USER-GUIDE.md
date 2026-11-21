@@ -101,6 +101,7 @@ The window has these parts:
 
 - Drag the gap between two panels to resize them.
 - Double-click a gap to reset the panels to their default size.
+- Each time you open **Local changes**, the right column is as wide as the window allows (the middle column keeps its minimum width), so the changed files and the diff have the most room. When you drag the gap there, your width applies until you leave **Local changes**. **Settings > Appearance > Layout > Reset** only resets the Log width.
 - Press `Alt+1` to hide or show the sidebar.
 - Press `Ctrl+D` to show the **File changes** tab. Press `Esc` in the diff to go back to **Changed files**.
 - Click the maximize button next to the tabs, or double-click the **File changes** tab, to make the right column wide. Do it again to restore the width.
@@ -246,8 +247,8 @@ When you select several commits in one repository, the menu has **Cherry-pick N 
 
 ### Refresh
 
-The log reloads by itself when HEAD or a branch changes.
-Click the refresh button in the log header, or press `Ctrl+R`, to reload by hand.
+The log reloads by itself when HEAD or a branch changes, and **Local changes** updates by itself when files in a working tree change.
+There is no refresh button in the log header or in **Local changes**. Press `Ctrl+R` to force a reload by hand.
 
 ---
 
@@ -376,9 +377,28 @@ Right-click a file or a folder in the **Local changes** list and choose **Add to
 Select several files first to add them together. The item is not there for a repository row or for a `.gitignore` file.
 
 - Choose a pattern: this file, this name anywhere, this extension anywhere, this folder, this folder name anywhere, or your own text. The number at the right of each pattern is how many files of the repository it matches.
-- Choose where the line goes: the `.gitignore` at the root of the repository (shared with others), or `.git/info/exclude` (only on your computer).
+- Choose where the line goes in **Add to**. The dialog shows the path of the file under the list.
+  - **This repository (.gitignore, shared)**: the `.gitignore` at the root of the repository. Everyone who clones the repository gets the rule.
+  - **This repository only (.git/info/exclude, not shared)**: the rule applies to this repository and stays on your computer.
+  - **All repositories (global ignore file)**: the rule applies to every repository on your computer. DeepGit uses the file that `core.excludesFile` names in your global git config (files that it includes are followed) or in the system config. When it is not set, DeepGit uses the default of git: `$XDG_CONFIG_HOME/git/ignore`, or `~/.config/git/ignore`. A repository can set its own `core.excludesFile`. Git then does not read the global file in that repository, and the dialog says so. DeepGit creates the file when it does not exist and never changes your git config. This file has no path of a repository, so the choices that start with `/` (**This file**, **This folder**) are off for it. Choose a name, an extension or a folder name, or write your own line. Several files are added by their names.
 - DeepGit adds the line at the end of the file and creates the file when it does not exist. It does not stage or commit. Commit the `.gitignore` when you are ready.
 - Git ignores only untracked files. When a pattern matches tracked files, the dialog says so. DeepGit does not untrack them.
+
+### Gitignore templates
+
+Templates add the usual rules of a language, a build tool, an editor or an operating system, like the template list of Fork or GitHub. The rules come from the [github/gitignore](https://github.com/github/gitignore) collection, trimmed.
+
+- Open the dialog with **Templates…** in the **Add to .gitignore** dialog, with **Gitignore templates…** in the menu of a repository in the sidebar, or with **Gitignore templates…** in Search Everywhere (it uses the focused repository).
+- Check the templates you want. They are in four groups: **Languages and frameworks** (Java, Kotlin, Rust, C, C++, Python, Node.js, Go, .NET / Visual Studio, Unity), **Build tools** (Maven, Gradle, CMake), **IDEs and editors** (JetBrains (IntelliJ), Visual Studio Code) and **Operating systems** (macOS, Windows, Linux).
+- Click **Detect** to scan the repository. DeepGit scans only when you click. It looks for files such as `Cargo.toml`, `pom.xml`, `build.gradle`, `package.json`, `go.mod`, `*.java`, `*.c`, `*.sln`, and for the `.idea` and `.vscode` folders (also when `.gitignore` hides them). It checks the templates it finds and marks them **Detected**. Point at the mark to see the file that was found.
+  - It does not look inside the folders of dependencies and build output: `node_modules`, `.venv`, `venv`, `vendor`, `third_party`, `Pods`, `target`, `build`, `dist`, `.gradle` and similar.
+  - One `*.py` file is not a sign: Python needs a project file (`pyproject.toml`, `setup.py`, `setup.cfg`, `requirements*.txt`, `Pipfile`, `poetry.lock`, `tox.ini`) or at least 3 `*.py` files. Header files (`*.h`) are not a sign of C, because C++ and Objective-C use them too.
+  - A repository with C++ sources gets C++, not C. A Unity project (`ProjectSettings/ProjectVersion.txt` at the root of the repository) gets Unity, not .NET.
+  - Operating system templates are never detected. When the repository has more than 100 000 files, the scan can be incomplete and the dialog says so.
+- Choose the file in **Add to**, the same three as in the ignore dialog. The preview shows the exact lines that go at the end of the file. A pattern that the file has already is left out. A template that is in the file already shows **Added** and cannot be checked again. A template whose rules are all in the file shows **Covered**.
+- A template goes into the file in the order of the list: before the first template block of the file that comes later in the list, else at the end. So `*.jar` of Java always stands above the `!gradle-wrapper.jar` of Gradle. The preview says where each block goes. When a new rule would hide a file that a line of your own keeps (`!name`), the dialog warns you.
+- Each template is a block with a header line, for example `# --- DeepGit template: Rust ---`. DeepGit finds the block by this line. You can edit the rules under it. Do not remove the header line if you want DeepGit to know that the template is there.
+- In the global file, wide rules of languages and build tools (`*.jar`, `build/`, `.env`) hide files in every repository, also where you track them. The dialog warns about it. Operating system and editor templates fit the global file best.
 
 ### Edit a file
 
@@ -938,7 +958,7 @@ While a menu, popup or dialog is open, most shortcuts do not work.
 | `Ctrl+Alt+N` | New branch (focused repository, from HEAD) |
 | `Ctrl+Alt+Z` | Stash changes (focused repository) |
 | `Alt+←` `Alt+→`, or the mouse back / forward buttons | Go back or forward (see below) |
-| `Ctrl+R` | Refresh |
+| `Ctrl+R` | Force a reload (changes are normally detected automatically) |
 | `Ctrl+Alt+S` or `Ctrl+,` | Settings |
 | `Ctrl+=` or `Ctrl++`, `Ctrl+-`, `Ctrl+0` | Zoom in, zoom out, reset zoom (UI scale). These work in text fields and in dialogs. |
 
@@ -1076,7 +1096,7 @@ Edits in the working tree may not refresh by themselves.
 
 To fix this:
 
-1. Press `Ctrl+R` to refresh by hand.
+1. Press `Ctrl+R` to force a reload by hand.
 2. Raise the limit. On many Linux systems, you run `sudo sysctl fs.inotify.max_user_watches=524288`. To keep the value after a restart, add the line `fs.inotify.max_user_watches=524288` to a file in `/etc/sysctl.d/`.
 
 DeepGit does not watch these folders: `node_modules`, `target`, `dist`, `build`, `out`, `.venv`, `venv`, `.gradle`, `.idea`, `__pycache__`, `.next` and `.cache`.
@@ -1122,7 +1142,7 @@ These steps do not change your repositories.
 
 ### The graph or the interface looks wrong
 
-- Press `Ctrl+R` to refresh.
+- Press `Ctrl+R` to force a reload of the log and of Local changes.
 - Check that you use Git 2.24 or newer: run `git --version`.
 - Open the Git console and turn on **Show background commands**. Look for failed commands.
 - Run the same command in a terminal to see the full Git error.

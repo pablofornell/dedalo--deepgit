@@ -8,7 +8,7 @@ use gitcore::{
     clone as gitclone, conflicts as gitconflicts, diff, files as gitfiles, image, log, ops,
     refs as gitrefs, status, ApiError, CloneOpts, CloneProgress, CloneResult, CloneTarget,
     CommitDetails, CommitRow, ConflictEntry, ConflictSide, ConflictVersions, DiffSpec, FileDiff,
-    FileImages, FileList, Git, HunkRef, IgnoreFile, IgnoreTarget, InitInfo, LogQuery,
+    FileImages, FileList, Git, HunkRef, IgnoreBlock, IgnoreFile, IgnoreTarget, InitInfo, LogQuery,
     LogSessionInfo, MergeOpts, OpResult, Project, Refs, RepoChanged, RepoInfo, RepoSummary,
     ResetMode, StashUntracked, TextFile, WorkingTree, Workspace,
 };
@@ -416,7 +416,7 @@ pub async fn write_text_file(
     .await
 }
 
-/// JS: `{ repoId, target: "gitignore" | "exclude", patterns }`. Returns the lines added.
+/// JS: `{ repoId, target: "gitignore" | "exclude" | "global", patterns }`. Returns the lines added.
 #[tauri::command]
 pub async fn append_ignore_rules(
     app: AppHandle,
@@ -425,10 +425,56 @@ pub async fn append_ignore_rules(
     target: IgnoreTarget,
     patterns: Vec<String>,
 ) -> Res<Vec<String>> {
-    write(&app, &state, &repo_id, move |g, r| {
+    let added = write(&app, &state, &repo_id, move |g, r| {
         gitfiles::append_ignore_rules(g, r, target, &patterns)
     })
-    .await
+    .await?;
+    if target == IgnoreTarget::Global && !added.is_empty() {
+        notify_other_repos(&app, &state, &repo_id);
+    }
+    Ok(added)
+}
+
+/// JS: `{ repoId, target, blocks: [{ header, lines }], order: [header] }`. Adds blocks of rules (templates);
+/// `order` lists the headers of every template in their canonical order. Returns the headers of the blocks
+/// that were added.
+#[tauri::command]
+pub async fn append_ignore_blocks(
+    app: AppHandle,
+    state: St<'_>,
+    repo_id: String,
+    target: IgnoreTarget,
+    blocks: Vec<IgnoreBlock>,
+    order: Vec<String>,
+) -> Res<Vec<String>> {
+    let added = write(&app, &state, &repo_id, move |g, r| {
+        gitfiles::append_ignore_blocks(g, r, target, &blocks, &order)
+    })
+    .await?;
+    if target == IgnoreTarget::Global && !added.is_empty() {
+        notify_other_repos(&app, &state, &repo_id);
+    }
+    Ok(added)
+}
+
+/// The global ignore file is read by every repository: after a write, each open repo but `repo_id` (the
+/// `write` call told that one) gets `repo-changed`, so its file lists drop the files that are ignored now.
+fn notify_other_repos(app: &AppHandle, state: &AppState, repo_id: &str) {
+    for id in other_repo_ids(&state.workspace_snapshot(), repo_id) {
+        let _ = app.emit("repo-changed", RepoChanged { repo_id: id });
+    }
+}
+
+/// The ids of the repos of every project except `repo_id`, each once (a repo can be in two projects).
+fn other_repo_ids(ws: &gitcore::Workspace, repo_id: &str) -> Vec<String> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut out = Vec::new();
+    for r in ws.projects.iter().flat_map(|p| &p.repos) {
+        if r.id != repo_id && seen.insert(r.id.clone()) {
+            out.push(r.id.clone());
+        }
+    }
+    out
 }
 
 // ------------------------------------------------------------------ write: commits and branches
@@ -871,6 +917,32 @@ pub async fn project_rename(state: St<'_>, project_id: String, name: String) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gitcore::{Project, Workspace};
+
+    fn repo(id: &str) -> RepoInfo {
+        RepoInfo {
+            id: id.to_string(),
+            name: id.to_string(),
+            path: format!("/w/{id}"),
+        }
+    }
+
+    #[test]
+    fn a_global_ignore_write_tells_every_other_open_repo_once() {
+        let project = |id: &str, repos: &[&str]| Project {
+            id: id.to_string(),
+            name: id.to_string(),
+            path: format!("/w/{id}"),
+            repos: repos.iter().map(|r| repo(r)).collect(),
+        };
+        let ws = Workspace {
+            projects: vec![project("p1", &["a", "b"]), project("p2", &["b", "c"])],
+            ..Workspace::default()
+        };
+        assert_eq!(other_repo_ids(&ws, "a"), vec!["b", "c"]);
+        assert_eq!(other_repo_ids(&ws, "b"), vec!["a", "c"]);
+        assert!(other_repo_ids(&Workspace::default(), "a").is_empty());
+    }
 
     /// The frontend sends `expected` in camelCase; the optional hunk parameters can be absent.
     #[test]

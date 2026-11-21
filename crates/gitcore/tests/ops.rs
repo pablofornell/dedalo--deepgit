@@ -61,6 +61,75 @@ fn unstage_in_a_repo_without_commits() {
     assert_eq!(t.unstaged.len(), 1);
 }
 
+/// Staged paths for a repo, from `git status`.
+fn staged_paths(r: &TestRepo) -> Vec<String> {
+    let t = status::working_tree(&git(), &r.info).unwrap();
+    t.staged.into_iter().map(|f| f.path).collect()
+}
+
+#[test]
+fn unstage_a_staged_new_file_that_was_deleted_from_disk() {
+    let r = TestRepo::new();
+    let g = git();
+    r.commit_file("seed", "s\n", "init");
+    r.write("new.txt", "n\n");
+    ops::stage(&g, &r.info, &strs(&["new.txt"])).unwrap();
+    std::fs::remove_file(r.path().join("new.txt")).unwrap();
+    // staged as added, gone from disk: shown as staged
+    assert_eq!(staged_paths(&r), ["new.txt"]);
+    ops::unstage(&g, &r.info, &strs(&["new.txt"])).unwrap();
+    let t = status::working_tree(&g, &r.info).unwrap();
+    assert!(t.staged.is_empty() && t.unstaged.is_empty(), "{t:?}");
+}
+
+#[test]
+fn unstage_a_staged_modification_of_a_file_deleted_from_disk() {
+    let r = TestRepo::new();
+    let g = git();
+    r.commit_file("a.txt", "1\n", "init");
+    r.write("a.txt", "2\n");
+    ops::stage(&g, &r.info, &strs(&["a.txt"])).unwrap();
+    std::fs::remove_file(r.path().join("a.txt")).unwrap();
+    ops::unstage(&g, &r.info, &strs(&["a.txt"])).unwrap();
+    let t = status::working_tree(&g, &r.info).unwrap();
+    assert!(t.staged.is_empty(), "{:?}", t.staged);
+    // the deletion is now an unstaged change
+    assert_eq!(t.unstaged.len(), 1);
+    assert_eq!(t.unstaged[0].status, gitcore::FileStatus::Deleted);
+}
+
+#[test]
+fn unstage_a_staged_rename_whose_new_file_was_deleted_from_disk() {
+    let r = TestRepo::new();
+    let g = git();
+    r.commit_file("old.txt", "one\ntwo\nthree\nfour\n", "init");
+    r.sh(&["mv", "old.txt", "new.txt"]);
+    std::fs::remove_file(r.path().join("new.txt")).unwrap();
+    let t = status::working_tree(&g, &r.info).unwrap();
+    assert_eq!(t.staged.len(), 1, "{:?}", t.staged);
+    assert_eq!(t.staged[0].status, gitcore::FileStatus::Renamed);
+    ops::unstage(&g, &r.info, &strs(&["new.txt"])).unwrap();
+    let t = status::working_tree(&g, &r.info).unwrap();
+    assert!(t.staged.is_empty(), "{:?}", t.staged);
+    // back to a plain deletion of old.txt in the worktree
+    assert_eq!(t.unstaged.len(), 1, "{:?}", t.unstaged);
+    assert_eq!(t.unstaged[0].path, "old.txt");
+    assert_eq!(t.unstaged[0].status, gitcore::FileStatus::Deleted);
+}
+
+#[test]
+fn unstage_ignores_a_path_that_is_no_longer_in_the_index() {
+    let r = TestRepo::new();
+    let g = git();
+    r.commit_file("a.txt", "1\n", "init");
+    r.write("new.txt", "n\n");
+    ops::stage(&g, &r.info, &strs(&["new.txt"])).unwrap();
+    // the row of `gone.txt` is stale: it is in neither HEAD nor the index
+    ops::unstage(&g, &r.info, &strs(&["gone.txt", "new.txt"])).unwrap();
+    assert!(staged_paths(&r).is_empty());
+    ops::unstage(&g, &r.info, &strs(&["gone.txt"])).unwrap();
+}
+
 #[test]
 fn glob_characters_in_paths_are_literal() {
     let r = TestRepo::new();

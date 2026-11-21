@@ -12,7 +12,7 @@ import type { DiffSpec, FileDiff, HunkRef } from "../../api/types";
 import { Button, EmptyState, Icon, IconButton, SegmentedControl, Spinner, StatusLetter, copyText, fileIconFor, openMenu, shortOid, splitDragging, splitPath, statusColorVar, toast, type MenuItem } from "../../components/ui";
 import { editFile } from "../../state/actions";
 import { confirmAction } from "../../state/dialogs";
-import { repoVersion } from "../../state/events";
+import { repoVersion, workingTreeVersion } from "../../state/events";
 import { cssPx } from "../../state/metrics";
 import { scaledHorizontalWheel } from "../../state/horizontalScroll";
 import { settings, type DiffMode } from "../../state/settings";
@@ -108,6 +108,7 @@ export function DiffViewer(props: DiffViewerProps): JSX.Element {
     const path = props.path;
     const oldPath = props.oldPath ?? null;
     repoVersion(repoId);
+    if (spec.kind !== "commit") workingTreeVersion(repoId);
     retry();
     const fileKey = `${repoId}\u0000${JSON.stringify(spec)}\u0000${path}\u0000${oldPath ?? ""}`;
     const mine = ++seq;

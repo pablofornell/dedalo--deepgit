@@ -14,11 +14,13 @@ describe("details width prefs", () => {
     expect(p.changes).toBe(500);
     expect(Number.isNaN(p.log)).toBe(true);
   });
-  it("is not the default when one tab has a width", () => {
+  it("is not the default when the Log has a width", () => {
     expect(prefsAreDefault(withWidth(defaultPrefs(), "log", 450))).toBe(false);
-    expect(prefsAreDefault(withWidth(defaultPrefs(), "changes", 500))).toBe(false);
   });
-  it("is the default again when every width is NaN", () => {
+  it("ignores the Local changes width, which is never saved", () => {
+    expect(prefsAreDefault(withWidth(defaultPrefs(), "changes", 500))).toBe(true);
+  });
+  it("is the default again when the Log width is NaN", () => {
     const p = withWidth(withWidth(defaultPrefs(), "log", 450), "log", Number.NaN);
     expect(prefsAreDefault(p)).toBe(true);
   });
@@ -37,14 +39,24 @@ describe("reset of the details widths", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("reads the saved widths of both tabs when it loads", async () => {
+  it("reads the saved Log width when it loads and ignores an old saved Local changes width", async () => {
     data.set("deepgit.ui.split.details", "450");
     data.set("deepgit.ui.split.details.changes", "520");
     const m = await import("./detailsWidth");
-    expect(m.detailsPrefs()).toEqual({ log: 450, changes: 520 });
+    expect(m.detailsPrefs().log).toBe(450);
+    expect(Number.isNaN(m.detailsPrefs().changes)).toBe(true);
     expect(m.detailsWidthsAreDefault()).toBe(false);
   });
-  it("sets both tabs to the default and clears both saved keys", async () => {
+  it("a Local changes width dragged in a visit does not enable Reset and is dropped when the tab is opened again", async () => {
+    const m = await import("./detailsWidth");
+    m.setDetailsWidth("changes", 500);
+    m.releaseFullOnChanges();
+    expect(m.detailsWidthsAreDefault()).toBe(true);
+    m.armFullOnChanges();
+    expect(Number.isNaN(m.detailsPrefs().changes)).toBe(true);
+    expect(m.fullOnChanges()).toBe(true);
+  });
+  it("sets both tabs to the default and clears both saved keys (also an old Local changes key)", async () => {
     data.set("deepgit.ui.split.details", "450");
     data.set("deepgit.ui.split.details.changes", "520");
     data.set("deepgit.ui.split.sidebar", "300");
@@ -71,5 +83,16 @@ describe("reset of the details widths", () => {
     const before = m.detailsResetCount();
     m.resetDetailsWidths();
     expect(m.detailsResetCount()).toBe(before + 1);
+  });
+  it("starts Local changes at its largest width, releases it on a drag and re-arms it on a reset", async () => {
+    const m = await import("./detailsWidth");
+    expect(m.fullOnChanges()).toBe(true);
+    m.releaseFullOnChanges();
+    expect(m.fullOnChanges()).toBe(false);
+    m.armFullOnChanges();
+    expect(m.fullOnChanges()).toBe(true);
+    m.releaseFullOnChanges();
+    m.resetDetailsWidths();
+    expect(m.fullOnChanges()).toBe(true);
   });
 });

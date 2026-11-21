@@ -10,7 +10,7 @@ import { type Accessor, type JSX, Match, Show, Switch, batch, createEffect, crea
 import * as api from "../../api/tauri";
 import type { DiffSpec, FileImages, ImageSide } from "../../api/types";
 import { Button, EmptyState, IconButton, SegmentedControl, Spinner } from "../../components/ui";
-import { repoVersion } from "../../state/events";
+import { repoVersion, workingTreeVersion } from "../../state/events";
 import { cssPx } from "../../state/metrics";
 import { imageMode, setImageMode } from "./diffPrefs";
 import {
@@ -100,6 +100,7 @@ export function ImageDiff(props: ImageDiffProps): JSX.Element {
     const { repoId, spec, path } = props;
     const oldPath = props.oldPath ?? null;
     repoVersion(repoId);
+    if (spec.kind !== "commit") workingTreeVersion(repoId);
     retry();
     const key = `${repoId}\u0000${JSON.stringify(spec)}\u0000${path}\u0000${oldPath ?? ""}`;
     const mine = ++seq;

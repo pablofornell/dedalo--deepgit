@@ -3,7 +3,7 @@
  * column with the "Changed files" / "File changes" tabs, optional bottom tool window) and status bar. Feature
  * components fill the islands; the shell owns sizes, visibility and the splitters.
  */
-import { type JSX, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
+import { type JSX, Show, batch, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
 import { HeaderSlotTarget, Icon, IconButton, Splitter, loadSplitSize, openMenu, plural, markNotificationsRead, notifications, splitDragging, unreadCount, type IconName } from "../../components/ui";
 import { formatDate } from "../../state/dates";
 import { tip } from "../../components/ui";
@@ -22,8 +22,8 @@ import { activeProject, selectedRepos } from "../../state/workspace";
 import { keysFor, formatKeys, register } from "../../state/keymap";
 import { loadPersisted, savePersisted } from "../../state/persist";
 import { DEFAULT_RATIOS, allocate, maxBottom, ratioFor, sanitizeRatios, type Mins, type Ratios } from "./heights";
-import { detailsPrefs, detailsResetCount, setDetailsWidth } from "./detailsWidth";
-import { MIN_DETAILS, clampDetails, defaultDetails, defaultRatio, detailsPersistKey, maxDetails, maximizedDetails, type MainTabKey } from "./widths";
+import { armFullOnChanges, detailsPrefs, detailsResetCount, fullOnChanges, releaseFullOnChanges, setDetailsWidth } from "./detailsWidth";
+import { MIN_DETAILS, columnWidth, defaultDetails, defaultRatio, detailsPersistKey, maxDetails, type MainTabKey } from "./widths";
 import "./shell.css";
 
 const SPLIT = 6;
@@ -78,11 +78,17 @@ export function Shell(): JSX.Element {
 
   const toastWidth = () => (sidebarVisible() ? Math.min(384, Math.max(260, sidebarW() - 12)) : 320);
   const rowWidth = () => rowW() || 1300;
-  const detailsW = createMemo(() => (maximized() ? maximizedDetails(rowWidth(), SPLIT) : clampDetails(detailsPrefs()[tabKey()], rowWidth(), SPLIT, defaultRatio(tabKey()))));
+  // On Local changes the column is at its largest width until the splitter is moved; `Splitter` starts a drag from the
+  // visible width (`size`), which equals its drag maximum there, so the first drag does not jump.
+  const detailsW = createMemo(() => columnWidth({ tab: tabKey(), maximized: maximized(), fullOnChanges: fullOnChanges(), stored: detailsPrefs()[tabKey()], rowW: rowWidth(), splitter: SPLIT }));
   const resizeDetails = (px: number) => {
-    setMaximized(false);
     const k = resizeKey();
-    setDetailsWidth(k, px);
+    // Save the width before the flag is released, so the column never shows the old saved width in between.
+    batch(() => {
+      setMaximized(false);
+      setDetailsWidth(k, px);
+      if (k === "changes") releaseFullOnChanges();
+    });
   };
   const mins = (): Mins => ({ top: tokenPx("--dg-shell-main-min-height", 260), bottom: MIN_BOTTOM });
   const heights = createMemo(() => allocate(centerH() || 900, SPLIT, bottomTool() !== null, ratios(), mins()));
@@ -110,6 +116,8 @@ export function Shell(): JSX.Element {
   // The maximized column only makes sense on "File changes": leaving that tab restores the width. Each main tab has its
   // own column tab, so a main tab switch to a tab on "Changed files" also restores the width.
   createEffect(on(detailsTab, (t) => t !== "diff" && setMaximized(false), { defer: true }));
+  // Each time Local changes is opened the column is at its largest width again (until the splitter is moved).
+  createEffect(on(mainTab, (t) => t === "changes" && armFullOnChanges(), { defer: true }));
   // A reset in Settings also restores a maximized column, so the new width is visible at once.
   createEffect(on(detailsResetCount, () => setMaximized(false), { defer: true }));
   // A click or Enter in the file tree hides the tree under the focus: move the focus into the diff so Esc works at once.
@@ -210,7 +218,7 @@ export function Shell(): JSX.Element {
                   <ChangesView />
                 </div>
               </section>
-              <Splitter orientation="vertical" reverse size={detailsW()} onSize={resizeDetails} min={MIN_DETAILS} max={() => maxDetails(rowWidth(), SPLIT)} defaultSize={defaultDetails(rowWidth(), SPLIT, defaultRatio(tabKey()))} persistKey={detailsPersistKey(resizeKey())} />
+              <Splitter orientation="vertical" reverse size={detailsW()} onSize={resizeDetails} min={MIN_DETAILS} max={() => maxDetails(rowWidth(), SPLIT)} defaultSize={defaultDetails(rowWidth(), SPLIT, defaultRatio(tabKey()))} persistKey={resizeKey() === "log" ? detailsPersistKey("log") : undefined} />
               <aside class="dg-shell-island dg-shell-details" style={{ width: detailsW() + "px" }} aria-label="Details">
                 <div class="dg-shell-head" role="tablist" aria-label="Details tabs">
                   <button type="button" role="tab" aria-selected={detailsTab() === "files"} class="dg-shell-tab" classList={{ "is-on": detailsTab() === "files" }} onClick={() => setDetailsTab("files")}>
