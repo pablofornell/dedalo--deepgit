@@ -919,7 +919,11 @@ fn the_global_file_follows_core_excludesfile_set_in_an_included_config() {
     .expect("gitconfig");
     std::fs::write(
         home.path().join("extra.cfg"),
-        format!("[core]\n\texcludesFile = {}\n", mine.display()),
+        // Forward slashes: git reads a backslash in a config value as an escape.
+        format!(
+            "[core]\n\texcludesFile = {}\n",
+            mine.display().to_string().replace('\\', "/")
+        ),
     )
     .expect("extra");
     let g = {
