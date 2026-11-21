@@ -910,7 +910,7 @@ fn git_at_home(home: &std::path::Path) -> gitcore::Git {
 #[test]
 fn the_global_file_follows_core_excludesfile_set_in_an_included_config() {
     let home = tempfile::tempdir().expect("home");
-    let mine = home.path().join("rules/mine");
+    let mine = home.path().join("rules").join("mine");
     // ~/.gitconfig only includes another file, which sets the excludes file.
     std::fs::write(
         home.path().join(".gitconfig"),
