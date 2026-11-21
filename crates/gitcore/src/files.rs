@@ -804,10 +804,15 @@ mod tests {
     #[test]
     fn global_ignore_follows_the_config_then_xdg_then_the_home_folder() {
         let got = |c, x, h| resolve_global_ignore(c, x, h).expect("path");
-        // The configured file wins.
+        // The configured file wins. It must be absolute on the host OS.
+        let configured = if cfg!(windows) {
+            "C:/etc/ign"
+        } else {
+            "/etc/ign"
+        };
         assert_eq!(
-            got(Some("/etc/ign"), os("/x"), os("/h")),
-            PathBuf::from("/etc/ign")
+            got(Some(configured), os("/x"), os("/h")),
+            PathBuf::from(configured)
         );
         // Without it: XDG_CONFIG_HOME, when it is set and not empty.
         assert_eq!(
