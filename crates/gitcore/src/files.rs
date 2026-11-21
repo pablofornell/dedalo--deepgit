@@ -660,7 +660,13 @@ fn resolve_global_ignore(
     home: Option<OsString>,
 ) -> Result<PathBuf, GitError> {
     if let Some(c) = configured.filter(|c| !c.trim().is_empty()) {
-        let path = PathBuf::from(c);
+        // git prints `C:/Users/...` on Windows. Use the native separator so the
+        // path the dialog shows looks like every other Windows path.
+        let path = if cfg!(windows) {
+            PathBuf::from(c.replace('/', "\\"))
+        } else {
+            PathBuf::from(c)
+        };
         if !path.is_absolute() {
             return Err(GitError::Invalid(format!(
                 "core.excludesFile is not an absolute path: {c}"
@@ -812,7 +818,7 @@ mod tests {
         };
         assert_eq!(
             got(Some(configured), os("/x"), os("/h")),
-            PathBuf::from(configured)
+            PathBuf::from(configured.replace('/', std::path::MAIN_SEPARATOR_STR))
         );
         // Without it: XDG_CONFIG_HOME, when it is set and not empty.
         assert_eq!(
