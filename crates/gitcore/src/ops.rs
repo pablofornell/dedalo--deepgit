@@ -166,15 +166,49 @@ pub(crate) fn with_paths<'a>(head: &[&'a str], paths: &'a [String]) -> Vec<&'a s
 
 // ---------------------------------------------------------------- index and worktree
 
-/// `git add -A -- paths`
+/// `git add -A -- paths`, on the paths git can still match: ones that exist on disk (a broken
+/// symlink counts) or are in the index (or have a file below them that is). `git add -A` exits 128
+/// on a path that is in neither, and stages nothing, not even the other paths: that is a deletion
+/// already staged by an earlier identical call (or from another tool), which there is nothing left
+/// to stage for, so such a path is skipped.
 pub fn stage(git: &Git, repo: &RepoInfo, paths: &[String]) -> Result<(), GitError> {
     if paths.is_empty() {
         return Ok(());
     }
+    for p in paths {
+        check_rel(p)?;
+    }
+    let rp = path_of(repo);
+    let (on_disk, absent): (Vec<&String>, Vec<&String>) = paths
+        .iter()
+        .partition(|p| std::fs::symlink_metadata(rp.join(p.as_str())).is_ok());
+    let mut matchable: Vec<String> = on_disk.into_iter().cloned().collect();
+    if !absent.is_empty() {
+        let absent: Vec<String> = absent.into_iter().cloned().collect();
+        let cached = git.run(
+            rp,
+            Some(&repo.id),
+            &with_paths(&["ls-files", "-z", "--cached"], &absent),
+            false,
+        )?;
+        let cached_files: Vec<&str> = cached
+            .stdout
+            .split('\0')
+            .filter(|s| !s.is_empty())
+            .collect();
+        matchable.extend(
+            absent
+                .into_iter()
+                .filter(|p| cached_files.iter().any(|f| covers(p, f))),
+        );
+    }
+    if matchable.is_empty() {
+        return Ok(());
+    }
     git.run(
-        path_of(repo),
+        rp,
         Some(&repo.id),
-        &with_paths(&["add", "-A"], paths),
+        &with_paths(&["add", "-A"], &matchable),
         true,
     )?;
     Ok(())

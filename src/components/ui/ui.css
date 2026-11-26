@@ -244,7 +244,7 @@
   box-shadow: var(--dg-popup-shadow); font-size: var(--dg-font-size-medium); animation: dg-toast-in var(--dg-dur-base) var(--dg-ease-out);
 }
 .dg-toast-head { display: flex; align-items: center; gap: 8px; }
-.dg-toast-title { flex: 1; min-width: 0; font-weight: var(--dg-weight-semibold); font-size: var(--dg-font-size); }
+.dg-toast-title { flex: 1; min-width: 0; overflow-wrap: anywhere; font-weight: var(--dg-weight-semibold); font-size: var(--dg-font-size); }
 .dg-toast-icon { width: 16px; height: 16px; }
 /* each kind: a wash of its family over the toast surface, a 1 px edge and a 3 px bar at the left */
 .dg-toast-success { --toast-c: var(--dg-success); --toast-fg: var(--dg-success-fg); --toast-border: var(--dg-success-border); background: var(--dg-toast-success-bg); }
@@ -256,6 +256,7 @@
 .dg-toast-body {
   margin: 4px 0 8px 24px; line-height: calc(17 * var(--dg-u)); color: var(--dg-text-muted);
   display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; user-select: text;
+  overflow-wrap: anywhere; /* long paths in git errors have no spaces to break at */
 }
 .dg-toast-actions { margin: 6px 0 0 24px; display: flex; gap: 16px; white-space: nowrap; }
 .dg-toast-body + .dg-toast-actions { margin-top: 0; }

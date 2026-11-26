@@ -130,6 +130,63 @@ fn unstage_ignores_a_path_that_is_no_longer_in_the_index() {
     ops::unstage(&g, &r.info, &strs(&["gone.txt"])).unwrap();
 }
 
+/// Commits three files with spaces in their paths and deletes them from disk.
+fn repo_with_three_deleted_files() -> (TestRepo, [&'static str; 3]) {
+    let r = TestRepo::new();
+    let names = [
+        "Sprint 42/PPI/a b.odt",
+        "Sprint 42/PPI/c d.odt",
+        "Sprint 42/PPI/e f.odt",
+    ];
+    for n in names {
+        r.write(n, "1\n");
+    }
+    r.sh(&["add", "-A"]);
+    r.sh(&["commit", "-q", "-m", "init"]);
+    for n in names {
+        std::fs::remove_file(r.path().join(n)).unwrap();
+    }
+    (r, names)
+}
+
+#[test]
+fn stage_the_same_deleted_file_twice() {
+    let (r, names) = repo_with_three_deleted_files();
+    let g = git();
+    ops::stage(&g, &r.info, &strs(&[names[0]])).unwrap();
+    let index = r.sh(&["ls-files", "-s"]);
+    assert_eq!(staged_paths(&r), [names[0]]);
+    // the deletion is already staged: the path is in neither the index nor the worktree
+    ops::stage(&g, &r.info, &strs(&[names[0]])).unwrap();
+    assert_eq!(r.sh(&["ls-files", "-s"]), index);
+    assert_eq!(staged_paths(&r), [names[0]]);
+}
+
+#[test]
+fn stage_an_already_staged_deletion_with_two_unstaged_ones() {
+    let (r, names) = repo_with_three_deleted_files();
+    let g = git();
+    ops::stage(&g, &r.info, &strs(&[names[0]])).unwrap();
+    ops::stage(&g, &r.info, &strs(&names)).unwrap();
+    let mut staged = staged_paths(&r);
+    staged.sort();
+    assert_eq!(staged, names);
+    assert!(status::working_tree(&g, &r.info)
+        .unwrap()
+        .unstaged
+        .is_empty());
+}
+
+#[test]
+fn stage_a_path_that_never_existed_is_a_no_op() {
+    let (r, _) = repo_with_three_deleted_files();
+    let g = git();
+    let index = r.sh(&["ls-files", "-s"]);
+    ops::stage(&g, &r.info, &strs(&["Sprint 42/PPI/never there.odt"])).unwrap();
+    assert_eq!(r.sh(&["ls-files", "-s"]), index);
+    assert!(staged_paths(&r).is_empty());
+}
+
 #[test]
 fn glob_characters_in_paths_are_literal() {
     let r = TestRepo::new();
